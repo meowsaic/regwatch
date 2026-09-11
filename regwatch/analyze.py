@@ -337,6 +337,7 @@ class AnalysisResult:
                 "pers_punishments": self.stats["comparison"]["pers_punishments"],
             },
             "time_trend": self.stats["time_trend"],
+            "time_trend_yearly": self.stats["time_trend_yearly"],
             "bureau_top": self.stats["bureau_top"],
             "dataset_split": self.stats["dataset_split"],
         }

@@ -50,6 +50,17 @@ _TONE_COLORS = {
     "sky": ("#E0F2FE", "#0369A1"),
 }
 
+# 指标卡数值颜色随 tone 变化，深色数字保证在白卡上清晰可读
+_TONE_VALUE_COLORS = {
+    "primary": "#354e92",
+    "accent": "#1D4ED8",
+    "amber": "#B45309",
+    "ok": "#15803D",
+    "danger": "#B91C1C",
+    "muted": "#334155",
+    "sky": "#0369A1",
+}
+
 _THEME_CSS = f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&display=swap');
@@ -72,7 +83,8 @@ h1,.rw-title{{font-size:30px;font-weight:700;letter-spacing:.3px}}
 h2{{font-size:20px;font-weight:700;margin-bottom:.2rem}}
 h3{{font-size:16px;font-weight:600;color:{BRAND['primary']}}}
 p,span,div{{font-size:14px}}
-.block-container{{padding-top:1.1rem;padding-bottom:3.2rem;max-width:1400px}}
+/* 顶部留白需大于固定 header 高度，否则首屏内容被遮挡 */
+.block-container{{padding-top:4.2rem;padding-bottom:3.2rem;max-width:1400px}}
 
 /* ── 侧边导航 ── */
 section[data-testid="stSidebar"] {{
@@ -84,6 +96,19 @@ section[data-testid="stSidebar"] [data-testid="stSidebarNav"] span{{font-weight:
 section[data-testid="stSidebar"] .stRadio label, section[data-testid="stSidebar"] .stSelectbox label{{font-size:13px}}
 section[data-testid="stSidebar"] hr{{border-color:rgba(255,255,255,.14)}}
 section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p{{font-size:12.5px;opacity:.78}}
+/* 侧边栏按钮：深色底上使用半透明白底 + 浅色文字，避免白字白底看不清 */
+section[data-testid="stSidebar"] .stButton > button{{
+  background:rgba(255,255,255,.12); color:#E8EEFB !important;
+  border:1px solid rgba(255,255,255,.30); border-radius:10px; font-weight:600;
+}}
+section[data-testid="stSidebar"] .stButton > button:hover{{
+  background:rgba(255,255,255,.22); border-color:rgba(255,255,255,.52);
+  transform:translateY(-1px); box-shadow:0 6px 16px rgba(0,0,0,.22);
+}}
+section[data-testid="stSidebar"] .stButton > button[kind="primary"]{{
+  background:linear-gradient(135deg,{BRAND['accent']},{BRAND['sky']});
+  border:none; color:#fff !important;
+}}
 
 /* ── 指标卡 ── */
 .rw-metrics{{display:grid;gap:14px;margin:6px 0 18px}}
@@ -175,10 +200,12 @@ def metric_cards(
     cards: List[str] = []
     for item in items:
         tone = str(item.get("tone", "primary"))
+        value_color = _TONE_VALUE_COLORS.get(tone, BRAND["primary"])
         cards.append(
             f'<div class="rw-card{" rw-" + tone if tone and tone != "primary" else ""}">'
             f'<div class="rw-label">{html.escape(str(item.get("label", "")))}</div>'
-            f'<div class="rw-value">{html.escape(str(item.get("value", "")))}</div>'
+            f'<div class="rw-value" style="color:{value_color}">'
+            f'{html.escape(str(item.get("value", "")))}</div>'
             f'<div class="rw-hint">{html.escape(str(item.get("hint", "")))}</div>'
             "</div>"
         )

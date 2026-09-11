@@ -1,9 +1,14 @@
-"""统计分析：违规类型、处罚措施、机构个人对比、法规来源与时间趋势。"""
+"""统计分析：违规类型、处罚措施、机构个人对比、法规来源与时间趋势。
+
+支持按日期区间统计：快捷区间（全部 / 近1年 / 近3年 / 近5年）+ 自定义起止日期。
+"""
 
 from __future__ import annotations
 
+import datetime as dt
 import sys
 from pathlib import Path
+from typing import Optional
 
 import streamlit as st
 
@@ -13,7 +18,7 @@ for _path in (str(_HERE.parents[2]), str(_HERE.parents[1])):
         sys.path.insert(0, _path)
 
 from components import charts, ui  # noqa: E402
-from components.data import load_rows, load_stats  # noqa: E402
+from components.data import filter_case_dicts, load_rows, load_stats  # noqa: E402
 from regwatch.storage import DATASETS, DATASET_LABELS  # noqa: E402
 
 ui.apply_theme()
@@ -30,17 +35,89 @@ selection = st.multiselect(
     format_func=DATASET_LABELS.get, default=list(DATASETS),
 )
 selection = selection or list(DATASETS)
-stats = load_stats(selection)
+
+rows_meta = load_rows(selection)
+
+
+def _parse_date(raw: object) -> Optional[dt.date]:
+    try:
+        return dt.date.fromisoformat(str(raw or "")[:10])
+    except ValueError:
+        return None
+
+
+def _shift_years(value: dt.date, years: int) -> dt.date:
+    """往前/后推 N 年；2 月 29 日自动回落到 2 月 28 日。"""
+    try:
+        return value.replace(year=value.year + years)
+    except ValueError:  # noqa: TRY002 - 闰日场景
+        return value.replace(year=value.year + years, day=28)
+
+
+dated = [d for d in (_parse_date(row.get("date")) for row in rows_meta) if d]
+if not dated:
+    ui.empty_state("所选数据集暂无带日期的案例", "请调整数据集范围，或先运行抓取与摘要任务")
+    st.stop()
+min_date, max_date = min(dated), max(dated)
+
+QUICK_RANGES = ("全部", "近1年", "近3年", "近5年")
+
+
+def _apply_quick_range() -> None:
+    """快捷区间变化时同步日期选择器（回调先于控件实例化执行，可安全写入）。"""
+    span = st.session_state.get("stat_quick")
+    if span == "全部":
+        st.session_state["stat_range"] = (min_date, max_date)
+    elif span:
+        years = int(str(span).removeprefix("近").removesuffix("年") or 1)
+        st.session_state["stat_range"] = (_shift_years(max_date, -years), max_date)
+
+
+quick_col, range_col = st.columns([2, 3], gap="large")
+with quick_col:
+    st.pills(
+        "快捷区间", list(QUICK_RANGES), key="stat_quick",
+        default="全部", on_change=_apply_quick_range,
+    )
+with range_col:
+    # 切换数据集后，把会话中残留的区间钳制到新范围内，避免越界
+    prev_range = st.session_state.get("stat_range")
+    if isinstance(prev_range, (tuple, list)) and prev_range:
+        p_start = min(max(prev_range[0], min_date), max_date)
+        p_end = min(max(prev_range[-1], min_date), max_date)
+        st.session_state["stat_range"] = (min(p_start, p_end), max(p_start, p_end))
+    elif isinstance(prev_range, dt.date):
+        st.session_state["stat_range"] = min(max(prev_range, min_date), max_date)
+    range_value = st.date_input(
+        "自定义区间", key="stat_range",
+        value=(min_date, max_date), min_value=min_date, max_value=max_date,
+    )
+
+if isinstance(range_value, (tuple, list)) and range_value:
+    start_date = range_value[0]
+    end_date = range_value[-1] if len(range_value) > 1 else range_value[0]
+else:
+    start_date = end_date = range_value
+date_from = start_date.isoformat()
+date_to = end_date.isoformat()
+
+stats = load_stats(selection, date_from, date_to)
 basic = stats.get("basic", {})
 total = int(basic.get("total") or 0)
+full_total = len(rows_meta)
 
 if not total:
-    ui.empty_state("所选范围内暂无案例", "请调整数据集范围，或先运行抓取与摘要任务")
+    ui.empty_state(
+        "所选范围与区间内暂无案例", "请调整数据集或统计区间，或先运行抓取与摘要任务"
+    )
     st.stop()
 
+scope = f"{total:,} 例案例（{date_from} ~ {date_to}）"
+if total != full_total:
+    scope += f"，已按区间筛选自全量 {full_total:,} 例"
 st.caption(
-    f"统计口径：{total:,} 例案例（{basic.get('date_range') or '—'}），"
-    "违规类型按顿号/分号拆分后归一到分类体系，同一案例可计入多个类型。"
+    f"统计口径：{scope}；违规类型按顿号/分号拆分后归一到分类体系，"
+    "同一案例可计入多个类型。"
 )
 
 tab1, tab2, tab3, tab4 = st.tabs(["违规类型", "处罚措施", "机构与个人", "法规与趋势"])
@@ -56,8 +133,8 @@ with tab1:
             top = distribution[:15]
             st.plotly_chart(
                 charts.hbar(
-                    [item["type"] for item in top][::-1],
-                    [item["count"] for item in top][::-1],
+                    [item["type"] for item in top],
+                    [item["count"] for item in top],
                     title="违规类型分布（TOP 15）", height=520,
                 ),
                 width="stretch",
@@ -114,8 +191,8 @@ with tab2:
         if details:
             st.plotly_chart(
                 charts.hbar(
-                    [item["punishment"] for item in details[:12]][::-1],
-                    [item["count"] for item in details[:12]][::-1],
+                    [item["punishment"] for item in details[:12]],
+                    [item["count"] for item in details[:12]],
                     title="具体处罚措施（TOP 12）", height=360, color="#F59E0B",
                 ),
                 width="stretch",
@@ -160,8 +237,8 @@ with tab4:
         if legal_top:
             st.plotly_chart(
                 charts.hbar(
-                    [item["law"] for item in legal_top[:12]][::-1],
-                    [item["count"] for item in legal_top[:12]][::-1],
+                    [item["law"] for item in legal_top[:12]],
+                    [item["count"] for item in legal_top[:12]],
                     title="法规引用 TOP 12", height=420, color="#0EA5E9",
                 ),
                 width="stretch",
@@ -185,7 +262,10 @@ with tab4:
                 width="stretch",
             )
             st.plotly_chart(
-                charts.heat_by_month(load_rows(selection), title="年度 × 月处分密度", height=260),
+                charts.heat_by_month(
+                    filter_case_dicts(rows_meta, date_from=date_from, date_to=date_to),
+                    title="年度 × 月处分密度", height=260,
+                ),
                 width="stretch",
             )
         else:

@@ -27,6 +27,7 @@ from regwatch.storage import (  # noqa: E402
     build_all_catalogs,
     build_catalog,
     catalog_signature,
+    filter_rows,
     read_case,
     read_json,
 )
@@ -55,12 +56,17 @@ def _load_catalog_cached(
 
 @st.cache_data(ttl=300, show_spinner="正在计算统计数据…")
 def _load_stats_cached(
-    datasets: Tuple[str, ...], signature: Tuple[Any, ...]
+    datasets: Tuple[str, ...],
+    signature: Tuple[Any, ...],
+    date_from: str = "",
+    date_to: str = "",
 ) -> Dict[str, Any]:
     rows: List[CaseRow] = []
     for dataset in datasets:
         rows.extend(build_catalog(dataset))
     rows.sort(key=lambda row: (row.date, row.case_id), reverse=True)
+    if date_from or date_to:
+        rows = filter_rows(rows, date_from=date_from, date_to=date_to)
     result = analyze(rows)
     payload = result.to_json_payload()
     payload["comparison"] = result.stats["comparison"]
@@ -85,10 +91,19 @@ def load_rows(datasets: Sequence[str] = DATASETS, force: bool = False) -> List[D
     return _load_catalog_cached(selected, catalog_signature(selected))
 
 
-def load_stats(datasets: Sequence[str] = DATASETS) -> Dict[str, Any]:
-    """载入统计聚合结果（分布、对比、趋势、代表案例）。"""
+def load_stats(
+    datasets: Sequence[str] = DATASETS,
+    date_from: str = "",
+    date_to: str = "",
+) -> Dict[str, Any]:
+    """载入统计聚合结果（分布、对比、趋势、代表案例）。
+
+    ``date_from`` / ``date_to`` 为 ``YYYY-MM-DD``（含边界），可单独使用。
+    """
     selected = _select(datasets)
-    return _load_stats_cached(selected, catalog_signature(selected))
+    return _load_stats_cached(
+        selected, catalog_signature(selected), date_from or "", date_to or ""
+    )
 
 
 def load_case_text(case: Dict[str, Any]) -> str:

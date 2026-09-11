@@ -284,11 +284,16 @@ class LLMClient:
         content_type = content_type or self.profile.vision_content_type or "image_url"
         alt_type = "file_url" if content_type == "image_url" else "image_url"
 
+        def _message_part(kind: str) -> Dict[str, Any]:
+            # 智谱等端点要求 content[0] 必须带 type 字段，如
+            # {"type": "file_url", "file_url": {"url": ...}}（OpenAI 同构）
+            return {"type": kind, kind: {"url": file_url}}
+
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {content_type: {"url": file_url}},
+                    _message_part(content_type),
                     {"type": "text", "text": prompt},
                 ],
             }
@@ -310,7 +315,7 @@ class LLMClient:
                 alt_type,
                 self._mask(str(exc))[:200],
             )
-            messages[0]["content"][0] = {alt_type: {"url": file_url}}
+            messages[0]["content"][0] = _message_part(alt_type)
             return self.chat(
                 messages,
                 model=self.vision_model,
@@ -346,11 +351,13 @@ class LLMClient:
             model_error = str(exc)
             logger.debug("models.list 不可用，回退到最小对话：%s", self._mask(model_error))
 
-        # 2) 回退：发一次极小的真实对话
+        # 2) 回退：发一次极小的真实对话。
+        # max_tokens 给足余量：GLM 等模型会把思考过程计入输出上限，
+        # 上限过小会导致正文为空而被误判为"返回空内容"。
         try:
             result = self.chat(
                 [{"role": "user", "content": "ping"}],
-                max_tokens=8,
+                max_tokens=512,
                 temperature=0,
             )
             if result.is_empty():

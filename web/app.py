@@ -35,8 +35,7 @@ configure_logging()
 with st.sidebar:
     st.markdown(
         '<div style="padding:4px 2px 12px">'
-        '<div style="font-size:23px;font-weight:700;letter-spacing:.5px">regwatch</div>'
-        '<div style="font-size:12px;opacity:.82;margin-top:2px">基金监管案例 · 采集 / 摘要 / 看板</div>'
+        '<div style="font-size:23px;font-weight:700;letter-spacing:.5px">基金监管案例看板</div>'
         "</div>",
         unsafe_allow_html=True,
     )
@@ -48,9 +47,6 @@ with st.sidebar:
     if st.button("刷新数据缓存", width="stretch"):
         clear_data_cache()
         st.toast("数据缓存已刷新")
-    st.caption(
-        "提示：案例正文与摘要数据（约 1.6GB）不入版本库，仅代码与配置纳入 git 管理。"
-    )
 
 try:
     stats = load_stats()

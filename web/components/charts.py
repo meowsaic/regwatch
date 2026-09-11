@@ -29,25 +29,47 @@ PALETTE: List[str] = [
 _FONT = "'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif"
 
 
-def style(fig: go.Figure, height: int = 340, legend: bool = True, margin: int = 42) -> go.Figure:
-    """统一图表版式：透明背景、品牌字体、紧凑边距与悬停样式。"""
-    fig.update_layout(
-        height=height,
-        margin={"l": margin, "r": 18, "t": 34, "b": margin},
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font={"family": _FONT, "size": 12.5, "color": "#475569"},
-        title={"font": {"size": 15, "color": "#354e92"}, "x": 0.01, "xanchor": "left"},
-        showlegend=legend,
-        legend={
+def style(
+    fig: go.Figure,
+    height: int = 340,
+    legend: bool = True,
+    margin: int = 42,
+    title: str = "",
+) -> go.Figure:
+    """统一图表版式：透明背景、品牌字体、紧凑边距与悬停样式。
+
+    ``title`` 为空时**不写入** title 布局对象——空的 title 对象会被
+    Plotly 渲染成字面量 "undefined"。
+    """
+    layout: Dict[str, Any] = {
+        "height": height,
+        "margin": {"l": margin, "r": 18, "t": 34, "b": margin},
+        "paper_bgcolor": "rgba(0,0,0,0)",
+        "plot_bgcolor": "rgba(0,0,0,0)",
+        "font": {"family": _FONT, "size": 12.5, "color": "#475569"},
+        "showlegend": legend,
+        "legend": {
             "orientation": "h", "yanchor": "bottom", "y": 1.0,
             "xanchor": "right", "x": 1.0, "bgcolor": "rgba(0,0,0,0)",
         },
-        hoverlabel={"bgcolor": "#0F172A", "font": {"color": "#F8FAFC", "family": _FONT}},
-        transition={"duration": 380, "easing": "cubic-in-out"},
+        "hoverlabel": {"bgcolor": "#0F172A", "font": {"color": "#F8FAFC", "family": _FONT}},
+        "transition": {"duration": 380, "easing": "cubic-in-out"},
+    }
+    if title:
+        layout["title"] = {
+            "text": str(title),
+            "font": {"size": 15, "color": "#354e92"},
+            "x": 0.01, "xanchor": "left",
+        }
+    fig.update_layout(layout)
+    fig.update_xaxes(
+        gridcolor="#EEF2F9", zerolinecolor="#E2E8F0", linecolor="#E2E8F0",
+        automargin="bottom",
     )
-    fig.update_xaxes(gridcolor="#EEF2F9", zerolinecolor="#E2E8F0", linecolor="#E2E8F0")
-    fig.update_yaxes(gridcolor="#EEF2F9", zerolinecolor="#E2E8F0", linecolor="#E2E8F0")
+    fig.update_yaxes(
+        gridcolor="#EEF2F9", zerolinecolor="#E2E8F0", linecolor="#E2E8F0",
+        automargin="left",
+    )
     return fig
 
 
@@ -61,7 +83,7 @@ def bar(
     """柱状图。"""
     fig = go.Figure(
         go.Bar(
-            x=list(labels), y=list(values), marker_color=color,
+            x=list(labels), y=list(values), marker_color=color, name="案例数",
             marker_line_width=0, hovertemplate="%{x}<br>%{y} 例<extra></extra>",
         )
     )
@@ -75,16 +97,19 @@ def hbar(
     height: int = 420,
     color: str = "#2563EB",
 ) -> go.Figure:
-    """横向条形图（适合较长的违规类型 / 法规名称）。"""
+    """横向条形图（适合较长的违规类型 / 法规名称）。
+
+    ``labels`` / ``values`` 按**降序**传入（首项最大），首项将渲染在最上方。
+    """
     fig = go.Figure(
         go.Bar(
             y=list(labels), x=list(values), orientation="h",
-            marker_color=color, marker_line_width=0,
+            marker_color=color, marker_line_width=0, name="案例数",
             hovertemplate="%{y}<br>%{x} 例<extra></extra>",
         )
     )
     fig.update_yaxes(autorange="reversed")
-    return _with_title(fig, title, height)
+    return _with_title(fig, title, height, legend=False)
 
 
 def donut(
@@ -100,7 +125,8 @@ def donut(
         go.Pie(
             labels=list(labels), values=list(values), hole=0.58,
             marker={"colors": palette, "line": {"color": "#FFFFFF", "width": 2}},
-            textinfo="label+percent", textposition="outside",
+            textinfo="percent", textposition="inside", insidetextorientation="horizontal",
+            textfont={"size": 12.5, "color": "#FFFFFF"},
             hovertemplate="%{label}<br>%{value} 例（%{percent}）<extra></extra>",
         )
     )
@@ -135,7 +161,7 @@ def trend(
                 )
             )
     fig.update_xaxes(type="category")
-    return _with_title(fig, title, height)
+    return _with_title(fig, title, height, legend=bool(secondary))
 
 
 def grouped_bar(
@@ -183,7 +209,4 @@ def heat_by_month(rows: Iterable[Dict[str, Any]], title: str = "", height: int =
 
 
 def _with_title(fig: go.Figure, title: str, height: int, legend: bool = True) -> go.Figure:
-    styled = style(fig, height=height, legend=legend)
-    if title:
-        styled.update_layout(title_text=title)
-    return styled
+    return style(fig, height=height, legend=legend, title=title)

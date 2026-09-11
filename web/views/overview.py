@@ -57,8 +57,8 @@ with left:
         top = distribution[:10]
         st.plotly_chart(
             charts.hbar(
-                [item["type"] for item in top][::-1],
-                [item["count"] for item in top][::-1],
+                [item["type"] for item in top],
+                [item["count"] for item in top],
                 height=400,
             ),
             width="stretch",
@@ -82,7 +82,7 @@ with right:
         ui.empty_state("暂无数据")
 
     st.markdown("#### 年度处分趋势")
-    yearly = stats.get("time_trend_yearly") or []
+    yearly = [item for item in (stats.get("time_trend_yearly") or []) if item["period"] >= "2022"]
     if yearly:
         st.plotly_chart(
             charts.trend(
@@ -92,6 +92,7 @@ with right:
             ),
             width="stretch",
         )
+        st.caption("统计口径：2022 年起 AMAC 与 CSRC 双数据源覆盖完整，早年仅有 AMAC 自律处分数据。")
     else:
         ui.empty_state("暂无趋势数据")
 
