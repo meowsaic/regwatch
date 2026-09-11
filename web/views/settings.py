@@ -14,7 +14,6 @@ for _path in (str(_HERE.parents[2]), str(_HERE.parents[1])):
 
 from components import ui  # noqa: E402
 from regwatch.config import (  # noqa: E402
-    DATA_ROOT_LABELS,
     TASK_KINDS,
     TASK_LABELS,
     ConfigError,

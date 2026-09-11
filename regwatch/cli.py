@@ -21,17 +21,17 @@ from __future__ import annotations
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from .config import PROJECT_ROOT, TASK_KINDS, TASK_LABELS, ConfigError, get_config
-from .jobs import JOB_LABELS, JobError
-from .llm import get_llm, test_profile
+from .jobs import JobError
+from .llm import test_profile
 from .logutil import configure_logging
-from .storage import DATASETS, DATASET_LABELS
+from .storage import DATASETS
 
 __all__ = ["app", "main"]
 

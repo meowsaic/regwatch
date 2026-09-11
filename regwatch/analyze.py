@@ -21,12 +21,10 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
 from .prompts import PUNISHMENT_CATEGORIES, VIOLATION_TYPES
 from .storage import (
-    DATASET_AMAC,
-    DATASET_CSRC,
     DATASET_LABELS,
     CaseRow,
     split_multi_value,
