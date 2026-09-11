@@ -1,0 +1,40 @@
+{
+  "_readme": [
+    "regwatch 配置样例。项目首次运行时若不存在 config.json，会自动以此文件为模板生成。",
+    "config.json 含密钥，已加入 .gitignore，不会进入版本库。",
+    "模型接入统一使用 OpenAI 兼容协议，只需填写 base_url / api_key / model 三项。",
+    "DeepSeek 官方文档：https://api-docs.deepseek.com/zh-cn/",
+    "API Key 也可通过环境变量提供，优先级高于本文件：REGWATCH_API_KEY_<模型ID大写>。"
+  ],
+  "data_roots": {
+    "amac_cases": "AMAC/cases",
+    "amac_summaries": "AMAC/summaries",
+    "amac_reports": "AMAC/reports",
+    "csrc_cases": "CSRC/cases",
+    "csrc_summaries": "CSRC/summaries"
+  },
+  "concurrency": {
+    "fetch": 8,
+    "summarize": 5
+  },
+  "models": [
+    {
+      "id": "deepseek",
+      "label": "DeepSeek 通用",
+      "base_url": "https://api.deepseek.com",
+      "api_key": "",
+      "api_key_env": "DEEPSEEK_API_KEY",
+      "model": "deepseek-chat",
+      "vision_model": "",
+      "vision_content_type": "image_url",
+      "token_param": "max_tokens",
+      "extra": {},
+      "note": "base_url 也可写 https://api.deepseek.com/v1；视觉模型留空时回落到文本模型"
+    }
+  ],
+  "tasks": {
+    "summarize": "deepseek",
+    "report": "deepseek",
+    "vision": ""
+  }
+}

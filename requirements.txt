@@ -1,0 +1,30 @@
+# regwatch 依赖清单
+# 安装：pip install -r requirements.txt
+# 开发环境：Python 3.12（最低支持 3.10）
+
+# ── 网页端（Streamlit 一体化界面） ──
+streamlit>=1.40
+plotly>=5.24
+
+# ── 模型调用（统一 OpenAI 兼容协议，DeepSeek 等） ──
+openai>=1.60
+
+# ── 命令行 ──
+typer>=0.12
+rich>=13.0
+
+# ── 数据统计 ──
+pandas>=2.2
+
+# ── 采集与解析 ──
+requests>=2.32
+beautifulsoup4>=4.12
+aiohttp>=3.9
+
+# ── 附件文本提取（CSRC 的 Word / PDF 决定书） ──
+pypdf>=4.0
+olefile>=0.47
+python-docx>=1.1
+
+# ── 进度显示 ──
+tqdm>=4.66
