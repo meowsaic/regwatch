@@ -3,7 +3,7 @@ feature: quality-refactor
 status: delivered
 updated: 2026-09-11
 branch: quality-refactor
-commits: 037d6d1..<head>
+commits: 037d6d1..111f029
 ---
 
 # regwatch 质量重构与 UI 优化
