@@ -61,13 +61,13 @@ JOB_LABELS: dict[str, str] = {
 #: 每类任务在网页端需要的参数说明（label, key, default, hint）
 JOB_PARAMS: dict[str, tuple[tuple[str, str, Any, str], ...]] = {
     "fetch_amac": (
-        ("起始日期", "start_date", "", "YYYY-MM-DD，留空=上一季度"),
-        ("结束日期", "end_date", "", "YYYY-MM-DD，留空=上一季度"),
+        ("起始日期", "start_date", "", "不填=上一季度"),
+        ("结束日期", "end_date", "", "不填=上一季度"),
         ("抓取分类", "categories", "all", "all / Institution / Personnel"),
     ),
     "fetch_csrc": (
-        ("起始日期", "start_date", "", "YYYY-MM-DD，留空=2022-01-01"),
-        ("结束日期", "end_date", "", "YYYY-MM-DD，留空=今天"),
+        ("起始日期", "start_date", "", "不填=2022-01-01"),
+        ("结束日期", "end_date", "", "不填=今天"),
         ("来源局", "bureaus", "all", "逗号分隔英文标识，all=全部 37 个"),
         ("案例类型", "case_types", "all", "all / penalty / measure"),
     ),
@@ -79,8 +79,8 @@ JOB_PARAMS: dict[str, tuple[tuple[str, str, Any, str], ...]] = {
     ),
     "report": (
         ("数据集", "dataset", "amac", "amac / csrc"),
-        ("起始日期", "start_date", "", "YYYY-MM-DD，留空=全量"),
-        ("结束日期", "end_date", "", "YYYY-MM-DD，留空=全量"),
+        ("起始日期", "start_date", "", "不填=全量"),
+        ("结束日期", "end_date", "", "不填=全量"),
         ("模型建议", "use_llm", False, "是否调用模型撰写合规建议"),
     ),
     "org_type": (

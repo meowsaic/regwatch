@@ -18,6 +18,7 @@ from regwatch.storage import CSRC_CASE_TYPE_LABELS
 
 from components import ui
 from components.data import (
+    clamp_page,
     filter_case_dicts,
     load_case_payload,
     load_rows,
@@ -47,7 +48,7 @@ _FILTER_KEYS = (
     "case_date_range",
     "case_keyword",
     "case_bureaus",
-    "case_page",
+    "case_page_no",
 )
 
 
@@ -186,21 +187,18 @@ if not filtered:
 
 page_size = 25
 page_count = max(1, -(-len(filtered) // page_size))
-prev_page = int(st.session_state.get("case_page") or 1)
-if prev_page > page_count:
-    st.session_state["case_page"] = page_count
+# Streamlit 控件值存在 widget key 上；钳制必须写 session_state[widget_key]
+st.session_state["case_page_no"] = clamp_page(st.session_state.get("case_page_no"), page_count)
 page_no = int(
     st.number_input(
         "页码",
         min_value=1,
         max_value=page_count,
-        value=min(prev_page, page_count),
         step=1,
         help=f"每页 {page_size} 条，共 {page_count} 页",
         key="case_page_no",
     )
 )
-st.session_state["case_page"] = page_no
 page_rows = filtered[(page_no - 1) * page_size : page_no * page_size]
 
 columns = [

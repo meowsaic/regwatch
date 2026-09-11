@@ -56,7 +56,6 @@ extend-exclude = [
   "AMAC",
   "CSRC",
   "专项分析报告",
-  "_fill_form*.py",
 ]
 
 [tool.ruff.lint]

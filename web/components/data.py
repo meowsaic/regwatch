@@ -34,6 +34,7 @@ from regwatch.storage import (
 )
 
 __all__ = [
+    "clamp_page",
     "clear_data_cache",
     "filter_case_dicts",
     "load_case_payload",
@@ -42,6 +43,16 @@ __all__ = [
     "load_stats",
     "violation_options",
 ]
+
+
+def clamp_page(value: object, page_count: int) -> int:
+    """把页码钳制到 ``[1, page_count]``；非法或缺失时返回 1。"""
+    count = max(1, int(page_count))
+    try:
+        page = int(value) if value is not None else 1
+    except (TypeError, ValueError):
+        return 1
+    return max(1, min(page, count))
 
 
 @st.cache_data(ttl=300, show_spinner="正在载入案例清单…")

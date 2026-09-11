@@ -23,7 +23,7 @@ regwatch/                核心包
 ├── cli.py               统一命令行（typer）
 └── sources/             采集子包：amac.py / csrc.py / amac_monthly.py / csrc_bureaus.py
 web/                     Streamlit 网页端（app.py + views/ 五页 + components/）
-tests/                   纯本地单元测试 + AppTest 网页冒烟测试
+tests/                   纯本地单元测试 + AppTest 网页冒烟测试 + clamp_page 等组件单测
 pyproject.toml           打包与工具链（uv / ruff / mypy）；权威依赖声明
 AMAC/*.py、CSRC/*.py      旧脚本已改为「薄封装」，仅转发到 regwatch 包
 ```

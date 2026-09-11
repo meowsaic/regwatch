@@ -2,13 +2,31 @@
 
 from __future__ import annotations
 
+import sys
 import unittest
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+if str(PROJECT_ROOT / "web") not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT / "web"))
+
 PAGES = ("overview", "cases", "statistics", "jobs", "settings")
+
+
+class ClampPageTests(unittest.TestCase):
+    def test_clamp_page_bounds(self):
+        from components.data import clamp_page
+
+        self.assertEqual(clamp_page(None, 5), 1)
+        self.assertEqual(clamp_page(0, 5), 1)
+        self.assertEqual(clamp_page(3, 5), 3)
+        self.assertEqual(clamp_page(99, 5), 5)
+        self.assertEqual(clamp_page("abc", 5), 1)
+        self.assertEqual(clamp_page(2, 0), 1)
 
 
 class WebAppTests(unittest.TestCase):
