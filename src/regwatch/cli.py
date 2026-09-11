@@ -11,6 +11,7 @@
     regwatch org-type       机构登记类型回填
     regwatch config         配置管理（show / test / add-model / set-model）
     regwatch web            启动 Streamlit 网页界面
+    regwatch tui            启动 Textual 终端界面
 
 所有子命令均复用 :mod:`regwatch.jobs` 中定义的任务实现，
 与网页端行为完全一致；缺省参数取自 ``config.json``。
@@ -433,6 +434,20 @@ def config_set_model(
         _handle_error(exc)
         return
     console.print(f"[green]已绑定：{task} → {model_id}[/green]")
+
+
+# ──────────────────────────── tui ────────────────────────────
+
+
+@app.command()
+def tui() -> None:
+    """启动 Textual 终端界面（菜单选任务，无需记子命令）。"""
+    try:
+        from .tui import main as tui_main
+    except ImportError:
+        console.print('[red]未安装 textual，请执行：uv sync 或 pip install "textual>=0.80"[/red]')
+        raise typer.Exit(code=2) from None
+    tui_main()
 
 
 # ──────────────────────────── web ────────────────────────────

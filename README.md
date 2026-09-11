@@ -14,7 +14,7 @@
 | 统计与报告 | 违规分布、处罚归类、机构 vs 个人、法规引用 TOP、时间趋势；输出 Markdown / HTML / JSON |
 | 网页看板 | 总览、案例浏览、统计分析、任务中心、模型与配置五个页面 |
 | 统一模型接入 | 只需填写 base_url / api_key / model，兼容 DeepSeek 与任意 OpenAI 兼容端点 |
-| 双入口 | 同一套能力既可在网页操作，也可用 `regwatch` 命令行执行 |
+| 多入口 | 同一套能力可在网页、`regwatch tui` 终端界面或 `regwatch` 命令行执行 |
 
 ## 快速开始
 
@@ -29,6 +29,9 @@ uv run regwatch config show
 
 # 3. 启动网页界面
 uv run regwatch web --port 8501
+
+# 或启动终端界面（菜单选任务，无需记子命令）
+uv run regwatch tui
 ```
 
 打开浏览器访问 http://localhost:8501 ，在「模型与配置」页填写：
@@ -53,6 +56,24 @@ uv run regwatch web --port 8501
 
 性能说明：看板与列表只读结构化字段并以数据变更信号作为缓存键（数据更新自动失效），
 案例正文在展开详情时才按需读取，因此 1.6GB 数据也能秒级打开。
+
+## 终端界面（TUI）
+
+无需记子命令：在终端用方向键选择任务、填参数、看进度。
+
+```powershell
+uv run regwatch tui
+```
+
+| 首页任务 | 对应能力 |
+|----------|----------|
+| AMAC 案例抓取 / CSRC 案例抓取 | 与 `fetch amac` / `fetch csrc` 相同 |
+| AMAC 月度公告下载 | 与 `fetch monthly` 相同 |
+| 结构化摘要提取 | 与 `summarize` 相同 |
+| 报告生成 | 与 `report` 相同 |
+
+模型配置、案例浏览与统计请使用网页端；`org-type`、`fetch url` 仍用命令行。
+执行通道与网页任务中心一致（同一 `regwatch.jobs`），可中途取消。
 
 ## 命令行
 
@@ -96,6 +117,7 @@ python -m regwatch.cli config set-model --task summarize --model deepseek
 │   ├── analyze.py / report.py     #   统计聚合与报告渲染（md / html / json）
 │   ├── jobs.py                    #   后台任务编排（线程、进度、取消、日志分流）
 │   ├── cli.py                     #   统一命令行入口
+│   ├── tui.py                     #   Textual 终端界面（regwatch tui）
 │   ├── sources/                   #   采集子包（amac / csrc / amac_monthly / csrc_bureaus）
 │   └── web/                       #   Streamlit 网页端（app / views / components）
 ├── data/                          # 运行时数据（gitignore，不入库）

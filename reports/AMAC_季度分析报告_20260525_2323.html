@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AMAC私募基金纪律处分季度分析报告 - 2026年Q1</title>
+    <style>
+        :root {
+            --primary-color: #1a365d;
+            --secondary-color: #2c5282;
+            --accent-color: #3182ce;
+            --success-color: #38a169;
+            --warning-color: #d69e2e;
+            --danger-color: #e53e3e;
+            --bg-color: #f7fafc;
+            --card-bg: #ffffff;
+            --text-primary: #1a202c;
+            --text-secondary: #4a5568;
+            --border-color: #e2e8f0;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            line-height: 1.8;
+            color: var(--text-primary);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 2rem 1rem;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+            padding: 3rem 2rem;
+            border-radius: 20px;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow-lg);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 100%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 60%);
+            pointer-events: none;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            position: relative;
+        }
+
+        .header-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1.5rem;
+            font-size: 0.95rem;
+            opacity: 0.9;
+            position: relative;
+        }
+
+        .header-meta span {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .content {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 2.5rem;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow);
+        }
+
+        h2 {
+            color: var(--primary-color);
+            font-size: 1.75rem;
+            margin: 2.5rem 0 1.5rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 3px solid var(--accent-color);
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        h2:first-child {
+            margin-top: 0;
+        }
+
+        h3 {
+            color: var(--secondary-color);
+            font-size: 1.25rem;
+            margin: 2rem 0 1rem;
+            font-weight: 600;
+        }
+
+        .highlight-box {
+            background: linear-gradient(135deg, #ebf8ff 0%, #e6fffa 100%);
+            border-left: 4px solid var(--accent-color);
+            padding: 1.25rem 1.5rem;
+            border-radius: 0 12px 12px 0;
+            margin: 1.5rem 0;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+            padding: 1.5rem;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .stat-card .number {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--accent-color);
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-card .label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .stat-card.highlight {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+        }
+
+        .stat-card.highlight .number {
+            color: white;
+        }
+
+        .stat-card.highlight .label {
+            color: rgba(255,255,255,0.85);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5rem 0;
+            font-size: 0.95rem;
+            box-shadow: var(--shadow);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        thead {
+            background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+            color: white;
+        }
+
+        th {
+            padding: 1rem 0.75rem;
+            text-align: left;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 0.85rem 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        tbody tr {
+            transition: background-color 0.2s ease;
+        }
+
+        tbody tr:hover {
+            background-color: #f7fafc;
+        }
+
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .badge-danger {
+            background: #fed7d7;
+            color: #c53030;
+        }
+
+        .badge-warning {
+            background: #feebc8;
+            color: #c05621;
+        }
+
+        .badge-info {
+            background: #bee3f8;
+            color: #2b6cb0;
+        }
+
+        .case-card {
+            background: #f7fafc;
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin: 1rem 0;
+            border-left: 4px solid var(--accent-color);
+            transition: transform 0.2s ease;
+        }
+
+        .case-card:hover {
+            transform: translateX(4px);
+        }
+
+        .case-card h4 {
+            color: var(--primary-color);
+            font-size: 1.1rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .case-card .meta {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .case-card .violation {
+            background: white;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            margin: 0.75rem 0;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .case-card .punishment {
+            display: inline-block;
+            background: var(--danger-color);
+            color: white;
+            padding: 0.35rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .suggestion-section {
+            background: linear-gradient(135deg, #f0fff4 0%, #e6fffa 100%);
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .suggestion-section h4 {
+            color: var(--success-color);
+            font-size: 1.15rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .suggestion-section p {
+            line-height: 1.9;
+            color: var(--text-secondary);
+        }
+
+        .footer {
+            text-align: center;
+            padding: 2rem;
+            color: white;
+            opacity: 0.9;
+            font-size: 0.9rem;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            margin: 1.5rem 0;
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+        }
+
+        .ranking-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            font-weight: 700;
+            font-size: 0.85rem;
+        }
+
+        .ranking-1 { background: linear-gradient(135deg, #ffd700, #ffb347); color: #5d4e37; }
+        .ranking-2 { background: linear-gradient(135deg, #c0c0c0, #a8a8a8); color: #4a4a4a; }
+        .ranking-3 { background: linear-gradient(135deg, #cd7f32, #b87333); color: white; }
+        .ranking-default { background: #e2e8f0; color: #4a5568; }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.75rem;
+            }
+
+            .content {
+                padding: 1.5rem;
+            }
+
+            h2 {
+                font-size: 1.4rem;
+            }
+
+            .stat-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            table {
+                font-size: 0.85rem;
+            }
+
+            th, td {
+                padding: 0.6rem 0.5rem;
+            }
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 0;
+            }
+
+            .content {
+                box-shadow: none;
+            }
+        }
+
+        .toc {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin: 1.5rem 0;
+        }
+
+        .toc h3 {
+            margin-top: 0;
+            color: var(--primary-color);
+        }
+
+        .toc ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .toc li {
+            padding: 0.5rem 0;
+            border-bottom: 1px dashed var(--border-color);
+        }
+
+        .toc li:last-child {
+            border-bottom: none;
+        }
+
+        .toc a {
+            color: var(--secondary-color);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .toc a:hover {
+            color: var(--accent-color);
+        }
+
+        .info-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 2rem;
+            margin: 1rem 0;
+            padding: 1rem;
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .info-value {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🏛️ AMAC私募基金纪律处分季度分析报告</h1>
+            <div class="header-meta">
+                <span>📅 生成时间：2026-05-25 23:23</span>
+                <span>📊 报告周期：2026年Q1（2026-01-01 ~ 2026-03-31）</span>
+                <span>📁 数据来源：中国证券投资基金业协会（AMAC）</span>
+                <span>📋 案例数量：58例</span>
+            </div>
+        </header>
+
+        <main class="content">
+            <h2>一、季度概况</h2>
+
+            <div class="stat-grid">
+                <div class="stat-card highlight">
+                    <div class="number">58</div>
+                    <div class="label">处分案例总数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">21</div>
+                    <div class="label">受处分机构</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">37</div>
+                    <div class="label">受处分人员</div>
+                </div>
+                <div class="stat-card">
+                    <div class="number">16</div>
+                    <div class="label">违规类型</div>
+                </div>
+            </div>
+
+            <div class="highlight-box">
+                <p>本季度中基协共发布 <strong>58</strong> 例纪律处分，其中机构 <strong>21</strong> 例（36.2%），人员 <strong>37</strong> 例（63.8%）。</p>
+            </div>
+
+            <div class="info-row">
+                <div class="info-item">
+                    <span class="info-label">报告周期：</span>
+                    <span class="info-value">2026年Q1（2026-01-01 ~ 2026-03-31）</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">案例日期范围：</span>
+                    <span class="info-value">2026-01-09 ~ 2026-03-20</span>
+                </div>
+            </div>
+
+            <h2>二、违规类型统计</h2>
+
+            <h3>2.1 违规类型分布</h3>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>排名</th>
+                            <th>违规类型</th>
+                            <th>涉及案例数</th>
+                            <th>占比</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="ranking-badge ranking-1">1</span></td>
+                            <td><strong>信息披露违规</strong></td>
+                            <td><span class="badge badge-danger">30</span></td>
+                            <td>51.7%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-2">2</span></td>
+                            <td>内控缺失</td>
+                            <td><span class="badge badge-warning">21</span></td>
+                            <td>36.2%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-3">3</span></td>
+                            <td>违规投资运作</td>
+                            <td><span class="badge badge-info">18</span></td>
+                            <td>31.0%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-3">4</span></td>
+                            <td>未按规定备案</td>
+                            <td><span class="badge badge-info">18</span></td>
+                            <td>31.0%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-default">5</span></td>
+                            <td>违规募集</td>
+                            <td>9</td>
+                            <td>15.5%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-default">6</span></td>
+                            <td>挪用基金财产</td>
+                            <td>8</td>
+                            <td>13.8%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-default">7</span></td>
+                            <td>其他</td>
+                            <td>3</td>
+                            <td>5.2%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-default">8</span></td>
+                            <td>未分类</td>
+                            <td>2</td>
+                            <td>3.4%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-default">9</span></td>
+                            <td>未充分履行谨慎勤勉义务</td>
+                            <td>2</td>
+                            <td>3.4%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-default">10</span></td>
+                            <td>未制定私募基金风险评级制度</td>
+                            <td>2</td>
+                            <td>3.4%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-default">11</span></td>
+                            <td>部分投资者适当性程序缺失</td>
+                            <td>2</td>
+                            <td>3.4%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-default">12</span></td>
+                            <td>在协会填报的管理人信息与事实不符</td>
+                            <td>2</td>
+                            <td>3.4%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-default">13</span></td>
+                            <td>未按规定报告重大事项变更信息</td>
+                            <td>1</td>
+                            <td>1.7%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-default">14</span></td>
+                            <td>非专业化运营</td>
+                            <td>1</td>
+                            <td>1.7%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-default">15</span></td>
+                            <td>未履行投资者适当性义务</td>
+                            <td>1</td>
+                            <td>1.7%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="ranking-badge ranking-default">16</span></td>
+                            <td>未妥善保管材料</td>
+                            <td>1</td>
+                            <td>1.7%</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="highlight-box">
+                <p>共涉及 <strong>16</strong> 种违规类型，<strong>121</strong> 次违规提及（部分案例涉及多种违规）。</p>
+                <p style="margin-top: 0.75rem;">最突出的违规类型为 <strong>信息披露违规</strong>，涉及 30 例，占全部案例的 <strong>51.7%</strong>。</p>
+            </div>
+
+            <h2>三、处罚措施分析</h2>
+
+            <h3>3.1 处罚类别分布</h3>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>处罚类别</th>
+                            <th>案例数</th>
+                            <th>占比</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="badge badge-danger">公开谴责</span></td>
+                            <td><strong>27</strong></td>
+                            <td>46.6%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge badge-warning">警告</span></td>
+                            <td>20</td>
+                            <td>34.5%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge badge-info">暂停受理备案</span></td>
+                            <td>7</td>
+                            <td>12.1%</td>
+                        </tr>
+                        <tr>
+                            <td><span class="badge badge-danger">撤销管理人登记</span></td>
+                            <td>3</td>
+                            <td>5.2%</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3>3.2 具体处罚措施</h3>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>处罚措施</th>
+                            <th>案例数</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>公开谴责</td><td><strong>27</strong></td></tr>
+                        <tr><td>警告</td><td><strong>20</strong></td></tr>
+                        <tr><td>暂停受理私募基金产品备案十二个月</td><td>3</td></tr>
+                        <tr><td>暂停受理产品备案十二个月</td><td>1</td></tr>
+                        <tr><td>暂停受理产品备案三个月</td><td>1</td></tr>
+                        <tr><td>暂停受理产品备案六个月</td><td>1</td></tr>
+                        <tr><td>撤销管理人登记</td><td>1</td></tr>
+                        <tr><td>撤销成都瑞华私募基金管理人登记</td><td>1</td></tr>
+                        <tr><td>撤销上海郡领管理人登记</td><td>1</td></tr>
+                        <tr><td>未明确</td><td>1</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h2>四、机构 vs 个人对比</h2>
+
+            <h3>4.1 违规类型对比</h3>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>违规类型</th>
+                            <th>机构</th>
+                            <th>人员</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>信息披露违规</td><td>12</td><td>18</td></tr>
+                        <tr><td>内控缺失</td><td>9</td><td>12</td></tr>
+                        <tr><td>未按规定备案</td><td>6</td><td>12</td></tr>
+                        <tr><td>违规投资运作</td><td>10</td><td>8</td></tr>
+                        <tr><td>违规募集</td><td>5</td><td>4</td></tr>
+                        <tr><td>挪用基金财产</td><td>4</td><td>4</td></tr>
+                        <tr><td>其他</td><td>0</td><td>3</td></tr>
+                        <tr><td>未充分履行谨慎勤勉义务</td><td>1</td><td>1</td></tr>
+                        <tr><td>部分投资者适当性程序缺失</td><td>1</td><td>1</td></tr>
+                        <tr><td>非专业化运营</td><td>1</td><td>0</td></tr>
+                        <tr><td>未按规定报告重大事项变更信息</td><td>0</td><td>1</td></tr>
+                        <tr><td>未制定私募基金风险评级制度</td><td>1</td><td>0</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <h3>4.2 处罚措施对比</h3>
+
+            <div class="stat-grid">
+                <div class="stat-card">
+                    <h4 style="color: var(--primary-color); margin-bottom: 1rem;">🏢 机构处罚 TOP5</h4>
+                    <ul style="text-align: left; list-style: none; padding: 0;">
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">1. 公开谴责（<strong>7例</strong>）</li>
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">2. 警告（<strong>4例</strong>）</li>
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">3. 暂停受理私募基金产品备案十二个月（<strong>3例</strong>）</li>
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">4. 暂停受理产品备案十二个月（<strong>1例</strong>）</li>
+                        <li style="padding: 0.5rem 0;">5. 撤销管理人登记（<strong>1例</strong>）</li>
+                    </ul>
+                </div>
+                <div class="stat-card">
+                    <h4 style="color: var(--primary-color); margin-bottom: 1rem;">👤 人员处罚 TOP5</h4>
+                    <ul style="text-align: left; list-style: none; padding: 0;">
+                        <li style="padding: 0.5rem 0; border-bottom: 1px solid var(--border-color);">1. 公开谴责（<strong>20例</strong>）</li>
+                        <li style="padding: 0.5rem 0;">2. 警告（<strong>16例</strong>）</li>
+                    </ul>
+                </div>
+            </div>
+
+            <h2>五、法规依据分析</h2>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>排名</th>
+                            <th>法规名称</th>
+                            <th>引用次数</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><span class="ranking-badge ranking-1">1</span></td><td><strong>《私募投资基金监督管理暂行办法》</strong></td><td><span class="badge badge-danger">57</span></td></tr>
+                        <tr><td><span class="ranking-badge ranking-2">2</span></td><td>《私募投资基金信息披露管理办法》</td><td><span class="badge badge-warning">18</span></td></tr>
+                        <tr><td><span class="ranking-badge ranking-3">3</span></td><td>《私募投资基金登记备案办法》</td><td><span class="badge badge-info">17</span></td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">4</span></td><td>《私募投资基金募集行为管理办法》</td><td>13</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">5</span></td><td>《私募投资基金管理人内部控制指引》</td><td>11</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">6</span></td><td>《私募投资基金管理人登记和基金备案办法（试行）》</td><td>8</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">7</span></td><td>《基金募集机构投资者适当性管理实施指引（试行）》</td><td>8</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">8</span></td><td>《中国证券投资基金业协会自律管理和纪律处分措施实施办法》</td><td>7</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">9</span></td><td>《关于加强私募投资基金监管的若干规定》</td><td>7</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">10</span></td><td>《关于加强私募投资基金监督管理的若干规定》</td><td>6</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">11</span></td><td>《中华人民共和国证券投资基金法》</td><td>5</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">12</span></td><td>《私募投资基金管理人内控指引》</td><td>4</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">13</span></td><td>《证券期货投资者适当性管理办法》</td><td>4</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">14</span></td><td>《私募投资基金备案指引第2号》</td><td>4</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">15</span></td><td>《私募投资基金管理人登记须知》</td><td>4</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">16</span></td><td>《私募基金管理人内部控制指引》</td><td>3</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">17</span></td><td>《私募投资基金管理人登记指引第1号》</td><td>2</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">18</span></td><td>《私募投资基金管理人内部控制指引第八条》</td><td>1</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">19</span></td><td>《私募投资基金登记备案办法（试行）》</td><td>1</td></tr>
+                        <tr><td><span class="ranking-badge ranking-default">20</span></td><td>《基金从业人员管理规则》</td><td>1</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="highlight-box">
+                <p>最常被引用的法规为 <strong>《私募投资基金监督管理暂行办法》</strong>，共被引用 <strong>57</strong> 次。</p>
+            </div>
+
+            <h2>六、典型案例</h2>
+
+            <h3>📌 违规募集</h3>
+
+            <div class="case-card">
+                <h4>王方振 <span style="font-size: 0.8rem; font-weight: normal; color: #666;">（个人，2026-02-06）</span></h4>
+                <div class="violation">
+                    <strong>违规事实：</strong>济南乐知存在委托无基金销售资格机构开展募集、不适当宣传推介、未按合同约定履行信息披露义务、未履行诚实信用谨慎勤勉义务、未严格落实投资适当性审查要求、从事与私募基金管理相冲突业务、不符合私募基金管理人登记要求等违规行为。
+                </div>
+                <span class="punishment">公开谴责</span>
+            </div>
+
+            <div class="case-card">
+                <h4>广东逸信私募基金管理有限公司 <span style="font-size: 0.8rem; font-weight: normal; color: #666;">（机构，2026-02-13）</span></h4>
+                <div class="violation">
+                    <strong>违规事实：</strong>广东逸信未建立关联交易管理制度，合规风控人员兼任冲突职务，未按基金合同约定进行信息披露，从事与私募基金管理无关的业务，未真实准确完整报送信息，委托无基金销售资格单位协助资金募集，办公场所不符合要求，未及时更新登记信息。
+                </div>
+                <span class="punishment">暂停受理产品备案六个月</span>
+            </div>
+
+            <h3>📌 未按规定备案</h3>
+
+            <div class="case-card">
+                <h4>周超 <span style="font-size: 0.8rem; font-weight: normal; color: #666;">（个人，2026-02-14）</span></h4>
+                <div class="violation">
+                    <strong>违规事实：</strong>成都瑞华存在重大事项变更未及时报告、未按规定办理基金备案手续、未履行诚实信用及谨慎勤勉义务、挪用基金财产、开展资金池业务、基金信息未按规定及时填报更新、未按规定进行信息披露、未按规定妥善保管资料以及人员任职不符合要求等违规行为。周超作为法定代表人，对未按规定办理基金备案手续、未按规定进行信息披露、重大事项变更未及时报告、人员任职不符合要求等违规行为承担责任。
+                </div>
+                <span class="punishment">公开谴责</span>
+            </div>
+
+            <div class="case-card">
+                <h4>彭作豪 <span style="font-size: 0.8rem; font-weight: normal; color: #666;">（个人，2026-02-14）</span></h4>
+                <div class="violation">
+                    <strong>违规事实：</strong>成都瑞华存在重大事项变更未及时报告、未按规定办理基金备案手续、超出基金合同约定投资范围进行投资、挪用基金财产、开展资金池业务、基金信息未按规定及时填报更新、未按规定进行信息披露、未按规定妥善保管资料、人员任职不符合要求等违规行为。彭作豪作为成都瑞华法定代表人，对未按规定办理基金备案手续、未按规定进行信息披露等违规行为承担责任。
+                </div>
+                <span class="punishment">公开谴责</span>
+            </div>
+
+            <h3>📌 信息披露违规</h3>
+
+            <div class="case-card">
+                <h4>许晓冰 <span style="font-size: 0.8rem; font-weight: normal; color: #666;">（个人，2026-02-13）</span></h4>
+                <div class="violation">
+                    <strong>违规事实：</strong>北京允泰未按约定确保投资者获取信息渠道畅通，部分投资者邮箱有误未处理，查询账号未开通，且通过微信披露信息不全面，违反信息披露要求。此外，风险测评问卷存在不当干扰测试结果及风险等级设置不合理、违反投资者适当性匹配原则的违规行为。同时，机构未妥善保管私募基金募集业务相关材料，未能提交回访记录及资产证明。审计机构聘任未经合伙人大会审议，未尽诚实信用、谨慎勤勉义务。
+                </div>
+                <span class="punishment">公开谴责</span>
+            </div>
+
+            <h3>📌 违规投资运作</h3>
+
+            <div class="case-card">
+                <h4>彭作豪 <span style="font-size: 0.8rem; font-weight: normal; color: #666;">（个人，2026-02-14）</span></h4>
+                <div class="violation">
+                    <strong>违规事实：</strong>成都瑞华存在重大事项变更未及时报告、未按规定办理基金备案手续、超出基金合同约定投资范围进行投资、挪用基金财产、开展资金池业务、基金信息未按规定及时填报更新、未按规定进行信息披露、未按规定妥善保管资料、人员任职不符合要求等违规行为。彭作豪作为成都瑞华法定代表人，对未按规定办理基金备案手续、未按规定进行信息披露等违规行为承担责任。
+                </div>
+                <span class="punishment">公开谴责</span>
+            </div>
+
+            <h3>📌 挪用基金财产</h3>
+
+            <div class="case-card">
+                <h4>成都瑞华创新私募基金管理有限公司 <span style="font-size: 0.8rem; font-weight: normal; color: #666;">（机构，2026-02-14）</span></h4>
+                <div class="violation">
+                    <strong>违规事实：</strong>成都瑞华存在重大事项变更未及时报告、未按规定办理基金备案手续、未履行诚实信用谨慎勤勉义务、挪用基金财产、开展资金池业务、基金信息未按规定及时填报更新、未按规定进行信息披露、未按规定妥善保管资料以及人员任职不符合要求等多项违规行为。
+                </div>
+                <span class="punishment">撤销成都瑞华私募基金管理人登记</span>
+            </div>
+
+            <h3>📌 内控缺失</h3>
+
+            <div class="case-card">
+                <h4>许晓冰 <span style="font-size: 0.8rem; font-weight: normal; color: #666;">（个人，2026-02-13）</span></h4>
+                <div class="violation">
+                    <strong>违规事实：</strong>北京允泰未按约定确保投资者获取信息渠道畅通，部分投资者邮箱有误未处理，查询账号未开通，且通过微信披露信息不全面，违反信息披露要求。此外，风险测评问卷存在不当干扰测试结果及风险等级设置不合理、违反投资者适当性匹配原则的违规行为。同时，机构未妥善保管私募基金募集业务相关材料，未能提交回访记录及资产证明。审计机构聘任未经合伙人大会审议，未尽诚实信用、谨慎勤勉义务。
+                </div>
+                <span class="punishment">公开谴责</span>
+            </div>
+
+            <div class="case-card">
+                <h4>周超 <span style="font-size: 0.8rem; font-weight: normal; color: #666;">（个人，2026-02-14）</span></h4>
+                <div class="violation">
+                    <strong>违规事实：</strong>成都瑞华存在重大事项变更未及时报告、未按规定办理基金备案手续、未履行诚实信用及谨慎勤勉义务、挪用基金财产、开展资金池业务、基金信息未按规定及时填报更新、未按规定进行信息披露、未按规定妥善保管资料以及人员任职不符合要求等违规行为。周超作为法定代表人，对未按规定办理基金备案手续、未按规定进行信息披露、重大事项变更未及时报告、人员任职不符合要求等违规行为承担责任。
+                </div>
+                <span class="punishment">公开谴责</span>
+            </div>
+
+            <h2>七、合规建议</h2>
+
+            <div class="suggestion-section">
+                <h4>💡 核心发现</h4>
+                <p>基于本季度AMAC纪律处分统计数据，本季度私募基金行业违规态势呈现"双高"特征，即机构受处分数量（21家）与人员受处分数量（37人）同步攀升，且信息披露违规（30例）与内控缺失（21例）成为最突出的两大顽疾。这表明行业在业务扩张的同时，合规防线存在明显的"漏斗效应"。</p>
+            </div>
+
+            <h3>1️⃣ 强化信息披露与穿透式管理</h3>
+            <div class="suggestion-section">
+                <p>数据显示，信息披露违规占比高达30%，是所有违规类型之首，而内控缺失紧随其后。这反映出部分机构在业务操作上存在随意性，缺乏必要的流程约束。建议管理人立即开展"合规体检"，重点排查底层资产的真实性与投资运作的合规性。</p>
+                <p style="margin-top: 1rem;">对于信息披露，不仅要满足形式上的报送，更要确保内容的真实、准确、完整，严禁使用误导性陈述或隐瞒重要事实。在内控方面，应将合规审查嵌入投资决策全流程，确保每一笔投资运作都有据可查、有章可循。</p>
+            </div>
+
+            <h3>2️⃣ 强化内控体系建设的"制度刚性"与"执行有效性"</h3>
+            <div class="suggestion-section">
+                <p>统计显示，内控缺失类处分占比接近四成，且常与违规投资运作交织出现。许多管理人的内控制度流于纸面，未能真正落地。建议管理人重新审视公司治理结构，确保风控部门与投资部门在职能上的独立性，打破"投研决定风控"的潜规则。</p>
+                <p style="margin-top: 1rem;">具体操作上，需完善关键岗位的轮岗与强制休假制度，防范因长期固守同一岗位而产生的道德风险与操作风险。同时，应建立完善的反洗钱与反腐败机制。</p>
+            </div>
+
+            <h3>3️⃣ 建立"全周期、全口径"的信息披露报送机制</h3>
+            <div class="suggestion-section">
+                <p>数据表明，《私募投资基金监督管理暂行办法》被引用57次，成为处罚的"重灾区"，而信息披露违规在处罚中占比最高。建议管理人制定标准化的信息披露模板，避免因理解偏差导致的数据错报或迟报。</p>
+                <p style="margin-top: 1rem;">在基金运作的全周期中，无论是季度、半年度还是年度报告，都必须确保披露内容的客观性，对于可能影响投资者利益的风险因素需进行充分揭示。</p>
+            </div>
+
+            <h3>4️⃣ 人员管理与培训是合规建设的基石</h3>
+            <div class="suggestion-section">
+                <p>本季度受处分人员达到37人，显示出合规意识淡薄是违规行为频发的主观原因。建议管理人将合规培训从"合规知识普及"升级为"合规文化重塑"。</p>
+                <p style="margin-top: 1rem;">针对基金经理、投资经理等关键岗位，应定期开展针对性的违规案例警示教育，特别是针对挪用基金财产、违规募集等严重违纪行为，要明确红线与底线。同时，应建立合规绩效考核机制，将合规表现纳入员工晋升与激励体系。</p>
+            </div>
+
+            <h2>附件：案例列表</h2>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>序号</th>
+                            <th>受处分对象</th>
+                            <th>类型</th>
+                            <th>违规类型</th>
+                            <th>处罚措施</th>
+                            <th>日期</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>1</td><td>王一博</td><td>个人</td><td></td><td><span class="badge badge-warning">警告</span></td><td>2026-01-09</td></tr>
+                        <tr><td>2</td><td>戴晓昆</td><td>个人</td><td>内控缺失</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-01-09</td></tr>
+                        <tr><td>3</td><td>黄静波</td><td>个人</td><td>挪用基金财产</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-01-09</td></tr>
+                        <tr><td>4</td><td>李丽坤</td><td>个人</td><td>挪用基金财产</td><td><span class="badge badge-warning">警告</span></td><td>2026-01-09</td></tr>
+                        <tr><td>5</td><td>云南惠众股权投资基金管理有限公司</td><td>机构</td><td>挪用基金财产;违规投资运作</td><td><span class="badge badge-info">暂停受理私募基金产品备案十二个月</span></td><td>2026-01-09</td></tr>
+                        <tr><td>6</td><td>上海善流投资管理有限公司</td><td>机构</td><td>违规募集</td><td><span class="badge badge-warning">警告</span></td><td>2026-01-09</td></tr>
+                        <tr><td>7</td><td>何禹</td><td>个人</td><td>违规募集</td><td><span class="badge badge-warning">警告</span></td><td>2026-01-09</td></tr>
+                        <tr><td>8</td><td>杭州禹慧私募基金管理有限公司</td><td>机构</td><td>未按规定备案;违规投资运作</td><td><span class="badge badge-info">暂停受理产品备案十二个月</span></td><td>2026-01-16</td></tr>
+                        <tr><td>9</td><td>北京中泰仁和基金管理有限公司</td><td>机构</td><td>未按规定备案;信息披露违规;内控缺失</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-01-16</td></tr>
+                        <tr><td>10</td><td>韩森</td><td>个人</td><td>未按规定备案;信息披露违规;内控缺失</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-01-16</td></tr>
+                        <tr><td>11</td><td>孟丹</td><td>个人</td><td>未按规定备案;信息披露违规</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-01-16</td></tr>
+                        <tr><td>12</td><td>赵冠群</td><td>个人</td><td>未按规定备案;信息披露违规</td><td><span class="badge badge-warning">警告</span></td><td>2026-01-16</td></tr>
+                        <tr><td>13</td><td>路传洋</td><td>个人</td><td>未按规定报告重大事项变更信息</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-01-16</td></tr>
+                        <tr><td>14</td><td>苏洋</td><td>个人</td><td></td><td></td><td>2026-01-16</td></tr>
+                        <tr><td>15</td><td>黄鹏良</td><td>个人</td><td>违规投资运作</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-01-20</td></tr>
+                        <tr><td>16</td><td>济南乐知股权投资基金管理有限公司</td><td>机构</td><td>违规募集、信息披露违规、违规投资运作、内控缺失</td><td><span class="badge badge-danger">撤销管理人登记</span></td><td>2026-02-06</td></tr>
+                        <tr><td>17</td><td>王方振</td><td>个人</td><td>违规募集、信息披露违规、违规投资运作、内控缺失</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-06</td></tr>
+                        <tr><td>18</td><td>王新亮</td><td>个人</td><td>信息披露违规;违规投资运作;内控缺失;未按规定备案</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-06</td></tr>
+                        <tr><td>19</td><td>深圳前海铭鼎资产管理有限公司</td><td>机构</td><td>信息披露违规;内控缺失</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-06</td></tr>
+                        <tr><td>20</td><td>深圳前海铭鼎资产管理有限公司</td><td>机构</td><td>内控缺失;信息披露违规</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-06</td></tr>
+                        <tr><td>21</td><td>深圳前海铭鼎资产管理有限公司</td><td>机构</td><td>内控缺失;信息披露违规</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-06</td></tr>
+                        <tr><td>22</td><td>寿宁投资管理（上海）有限公司</td><td>机构</td><td>违规投资运作</td><td><span class="badge badge-info">暂停受理产品备案三个月</span></td><td>2026-02-06</td></tr>
+                        <tr><td>23</td><td>蔡博睿</td><td>个人</td><td>违规投资运作</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-06</td></tr>
+                        <tr><td>24</td><td>广东逸信私募基金管理有限公司</td><td>机构</td><td>信息披露违规、内控缺失、违规募集</td><td><span class="badge badge-info">暂停受理产品备案六个月</span></td><td>2026-02-13</td></tr>
+                        <tr><td>25</td><td>北京允泰投资管理有限公司</td><td>机构</td><td>信息披露违规;违规投资运作;内控缺失</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-13</td></tr>
+                        <tr><td>26</td><td>北京诺壹资产管理有限公司</td><td>机构</td><td>未按规定备案、非专业化运营、挪用基金财产</td><td><span class="badge badge-info">暂停受理私募基金产品备案十二个月</span></td><td>2026-02-13</td></tr>
+                        <tr><td>27</td><td>庄炜</td><td>个人</td><td>信息披露违规</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-13</td></tr>
+                        <tr><td>28</td><td>颜小舒</td><td>个人</td><td>信息披露违规</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-13</td></tr>
+                        <tr><td>29</td><td>黄邵隆</td><td>个人</td><td>信息披露违规</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-13</td></tr>
+                        <tr><td>30</td><td>许晓冰</td><td>个人</td><td>信息披露违规;违规投资运作;内控缺失</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-13</td></tr>
+                        <tr><td>31</td><td>王振龙</td><td>个人</td><td>信息披露违规;违规投资运作;内控缺失</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-13</td></tr>
+                        <tr><td>32</td><td>张璐璐</td><td>个人</td><td>未按规定备案</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-13</td></tr>
+                        <tr><td>33</td><td>马万良</td><td>个人</td><td>未按规定备案、内控缺失、挪用基金财产</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-13</td></tr>
+                        <tr><td>34</td><td>李达</td><td>个人</td><td>未按规定备案、内控缺失、挪用基金财产</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-13</td></tr>
+                        <tr><td>35</td><td>成都瑞华创新私募基金管理有限公司</td><td>机构</td><td>未按规定备案;信息披露违规;违规投资运作;挪用基金财产;内控缺失</td><td><span class="badge badge-danger">撤销成都瑞华私募基金管理人登记</span></td><td>2026-02-14</td></tr>
+                        <tr><td>36</td><td>京智（广州）股权投资基金管理有限责任公司</td><td>机构</td><td>未充分履行谨慎勤勉义务;未制定私募基金风险评级制度;部分投资者适当性程序缺失;在协会填报的管理人信息与事实不符</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>37</td><td>北京新鼎荣盛资本管理有限公司</td><td>机构</td><td>违规募集;违规投资运作</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>38</td><td>上海元亨王道私募基金管理有限公司</td><td>机构</td><td>信息披露违规</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>39</td><td>上海祥乾私募基金管理有限公司</td><td>机构</td><td>信息披露违规;违规投资运作</td><td><span class="badge badge-info">暂停受理私募基金产品备案三个月</span></td><td>2026-02-14</td></tr>
+                        <tr><td>40</td><td>上海日升昌行股权投资基金管理有限公司</td><td>机构</td><td>未按规定备案</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-14</td></tr>
+                        <tr><td>41</td><td>周超</td><td>个人</td><td>未按规定备案;信息披露违规;内控缺失;其他</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-14</td></tr>
+                        <tr><td>42</td><td>张越</td><td>个人</td><td>违规募集</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>43</td><td>成都瑞华创新私募基金管理有限公司</td><td>机构</td><td>未按规定备案、违规投资运作、挪用基金财产、内控缺失、信息披露违规</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-14</td></tr>
+                        <tr><td>44</td><td>彭作豪</td><td>个人</td><td>未按规定备案、信息披露违规、违规投资运作、内控缺失、其他</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-14</td></tr>
+                        <tr><td>45</td><td>李翠苹</td><td>个人</td><td>未按规定备案;信息披露违规;内控缺失;其他</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>46</td><td>解秀民</td><td>个人</td><td>违规投资运作</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>47</td><td>曹恒瑞</td><td>个人</td><td>未按规定备案</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-14</td></tr>
+                        <tr><td>48</td><td>徐畅</td><td>个人</td><td>未按规定备案</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>49</td><td>戴汇瑜</td><td>个人</td><td>未充分履行谨慎勤勉义务;部分投资者适当性程序缺失;未制定私募基金风险评级制度;在协会填报的管理人信息与事实不符</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>50</td><td>张驰</td><td>个人</td><td>违规募集</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>51</td><td>齐丹</td><td>个人</td><td>内控缺失</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>52</td><td>程芳</td><td>个人</td><td>信息披露违规</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-14</td></tr>
+                        <tr><td>53</td><td>周源</td><td>个人</td><td>信息披露违规</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>54</td><td>张岚</td><td>个人</td><td>信息披露违规</td><td><span class="badge badge-danger">公开谴责</span></td><td>2026-02-14</td></tr>
+                        <tr><td>55</td><td>杨兆立</td><td>个人</td><td>信息披露违规</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>56</td><td>邱顺</td><td>个人</td><td>信息披露违规</td><td><span class="badge badge-warning">警告</span></td><td>2026-02-14</td></tr>
+                        <tr><td>57</td><td>上海郡领投资有限公司</td><td>机构</td><td>信息披露违规、未履行投资者适当性义务、未妥善保管材料、违规募集</td><td><span class="badge badge-danger">撤销上海郡领管理人登记</span></td><td>2026-03-20</td></tr>
+                        <tr><td>58</td><td>上海熠万投资管理有限公司</td><td>机构</td><td>违规投资运作</td><td><span class="badge badge-info">暂停受理私募基金产品备案十二个月</span></td><td>2026-03-20</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </main>
+
+        <footer class="footer">
+            <p>本报告由 report_generator.py 自动生成，数据基于 case_fetcher + case_summarizer 产出的结构化摘要。</p>
+        </footer>
+    </div>
+</body>
+</html>

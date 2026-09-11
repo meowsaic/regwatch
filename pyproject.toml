@@ -12,6 +12,7 @@ dependencies = [
   "openai>=1.60",
   "typer>=0.12",
   "rich>=13.0",
+  "textual>=0.80",
   "pandas>=2.2",
   "requests>=2.32",
   "beautifulsoup4>=4.12",
