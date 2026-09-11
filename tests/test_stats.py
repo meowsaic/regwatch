@@ -39,23 +39,48 @@ def row(**kwargs) -> CaseRow:
 
 
 ROWS = [
-    row(case_id="a", date="2025-01-05", entity="甲公司", entity_type="机构",
-        violation_type="违规募集、内控缺失", punishment="公开谴责",
+    row(
+        case_id="a",
+        date="2025-01-05",
+        entity="甲公司",
+        entity_type="机构",
+        violation_type="违规募集、内控缺失",
+        punishment="公开谴责",
         legal_basis="《私募投资基金监督管理暂行办法》第十二条",
-        violation_summary="向不合格投资者募集基金份额，情节严重。"),
-    row(case_id="b", date="2025-01-20", entity="乙公司", entity_type="机构",
-        violation_type="信息披露违规", punishment="暂停受理备案",
+        violation_summary="向不合格投资者募集基金份额，情节严重。",
+    ),
+    row(
+        case_id="b",
+        date="2025-01-20",
+        entity="乙公司",
+        entity_type="机构",
+        violation_type="信息披露违规",
+        punishment="暂停受理备案",
         legal_basis="《私募投资基金监督管理暂行办法》第二十四条",
-        violation_summary="未按合同约定向投资者披露基金净值信息。"),
-    row(case_id="c", date="2025-02-10", entity="张三", entity_type="个人",
-        violation_type="挪用基金财产、违规募集", punishment="加入黑名单",
+        violation_summary="未按合同约定向投资者披露基金净值信息。",
+    ),
+    row(
+        case_id="c",
+        date="2025-02-10",
+        entity="张三",
+        entity_type="个人",
+        violation_type="挪用基金财产、违规募集",
+        punishment="加入黑名单",
         legal_basis="《私募投资基金监督管理暂行办法》第二十三条",
-        violation_summary="挪用基金财产用于个人支出，并承诺保本保收益。"),
-    row(case_id="d", date="2025-02-25", entity="丙证券", entity_type="机构",
-        violation_type="信息披露违规", punishment="出具警示函",
+        violation_summary="挪用基金财产用于个人支出，并承诺保本保收益。",
+    ),
+    row(
+        case_id="d",
+        date="2025-02-25",
+        entity="丙证券",
+        entity_type="机构",
+        violation_type="信息披露违规",
+        punishment="出具警示函",
         legal_basis="《证券法》第一百九十七条",
-        violation_summary="未按规定披露重大事项。", bureau="Beijing",
-        case_type="measure"),
+        violation_summary="未按规定披露重大事项。",
+        bureau="Beijing",
+        case_type="measure",
+    ),
 ]
 
 
@@ -128,7 +153,9 @@ class StatsTests(unittest.TestCase):
         pers = dict(comparison["pers_violations"])
         self.assertEqual(inst.get("信息披露违规"), 2)
         self.assertEqual(pers.get("挪用基金财产"), 1)
-        self.assertIn("加入黑名单", [name for name, _ in comparison["pers_punishments"].most_common()])
+        self.assertIn(
+            "加入黑名单", [name for name, _ in comparison["pers_punishments"].most_common()]
+        )
 
     def test_time_trend_monthly(self):
         trend = compute_time_trend(ROWS)
@@ -173,13 +200,22 @@ class ReportTests(unittest.TestCase):
     def test_markdown_has_all_sections(self):
         result = analyze(ROWS)
         markdown = render_markdown(result, "测试报告", "2025-01-01 ~ 2025-02-28", "中基协（AMAC）")
-        for heading in ("## 一、概况", "## 二、违规类型统计", "## 三、处罚措施分析",
-                        "## 四、机构 vs 个人对比", "## 五、法规依据分析",
-                        "## 六、典型案例", "## 七、合规建议", "## 附件：案例列表"):
+        for heading in (
+            "## 一、概况",
+            "## 二、违规类型统计",
+            "## 三、处罚措施分析",
+            "## 四、机构 vs 个人对比",
+            "## 五、法规依据分析",
+            "## 六、典型案例",
+            "## 七、合规建议",
+            "## 附件：案例列表",
+        ):
             self.assertIn(heading, markdown)
         self.assertIn("《私募投资基金监督管理暂行办法》", markdown)
         # LLM 建议优先于内置建议
-        custom = render_markdown(result, "测试报告", "周期", "中基协（AMAC）", advice="这是模型撰写的建议。")
+        custom = render_markdown(
+            result, "测试报告", "周期", "中基协（AMAC）", advice="这是模型撰写的建议。"
+        )
         self.assertIn("这是模型撰写的建议。", custom)
         self.assertNotIn("### 通用合规建议", custom)
 
@@ -235,25 +271,33 @@ class BuildReportTests(unittest.TestCase):
         summaries.mkdir(parents=True)
         for index, case_id in enumerate(("20250101_1001", "20250101_1002"), 1):
             (cases / f"{case_id}.json").write_text(
-                '{"case_id": "%s", "raw_text": "正文", "ocr_success": true}' % case_id,
+                f'{{"case_id": "{case_id}", "raw_text": "正文", "ocr_success": true}}',
                 encoding="utf-8",
             )
             (summaries / f"{case_id}_summary.json").write_text(
-                '{"case_id": "%s", "category": "scfjg", "date": "2025-01-0%d", '
-                '"punished_entity": "公司%d", "entity_type": "机构", '
-                '"violation_type": "内控缺失", "punishment": "公开谴责", '
-                '"violation_summary": "内控不健全，合规风控人员兼任冲突职务。", '
-                '"extract_success": true}' % (case_id, index, index),
+                (
+                    f'{{"case_id": "{case_id}", "category": "scfjg", "date": "2025-01-0{index}", '
+                    f'"punished_entity": "公司{index}", "entity_type": "机构", '
+                    f'"violation_type": "内控缺失", "punishment": "公开谴责", '
+                    f'"violation_summary": "内控不健全，合规风控人员兼任冲突职务。", '
+                    f'"extract_success": true}}'
+                ),
                 encoding="utf-8",
             )
 
     def test_build_report_creates_files(self):
         from regwatch.storage import SummaryIndex
 
-        SummaryIndex(self.base / "amac" / "summaries").mark_done("20250101_1001", "20250101_1001_summary.json")
-        SummaryIndex(self.base / "amac" / "summaries").mark_done("20250101_1002", "20250101_1002_summary.json")
+        SummaryIndex(self.base / "amac" / "summaries").mark_done(
+            "20250101_1001", "20250101_1001_summary.json"
+        )
+        SummaryIndex(self.base / "amac" / "summaries").mark_done(
+            "20250101_1002", "20250101_1002_summary.json"
+        )
 
-        output = build_report("amac", config=self.cfg, start_date="2025-01-01", end_date="2025-12-31")
+        output = build_report(
+            "amac", config=self.cfg, start_date="2025-01-01", end_date="2025-12-31"
+        )
         self.assertEqual(output.row_count, 2)
         self.assertIn("## 一、概况", output.markdown)
         self.assertIn("2025-01-01 ~ 2025-12-31", output.period_label)
@@ -264,7 +308,9 @@ class BuildReportTests(unittest.TestCase):
             self.assertTrue(Path(paths[key]).exists())
 
     def test_empty_range_yields_report_without_crash(self):
-        output = build_report("amac", config=self.cfg, start_date="1999-01-01", end_date="1999-12-31")
+        output = build_report(
+            "amac", config=self.cfg, start_date="1999-01-01", end_date="1999-12-31"
+        )
         self.assertEqual(output.row_count, 0)
         self.assertIn("本期暂无可展示的代表性案例", output.markdown)
         self.assertIsNotNone(default_compliance_advice(analyze([])))

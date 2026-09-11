@@ -38,10 +38,11 @@ import json
 import os
 import re
 import threading
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Iterator, List, Optional, Sequence, Tuple
+from typing import Any
 
 from .config import Config, get_config
 from .logutil import get_logger
@@ -49,51 +50,51 @@ from .logutil import get_logger
 logger = get_logger("storage")
 
 __all__ = [
-    "DATASET_AMAC",
-    "DATASET_CSRC",
-    "DATASETS",
-    "DATASET_LABELS",
     "CSRC_CASE_TYPES",
     "CSRC_CASE_TYPE_LABELS",
+    "DATASETS",
+    "DATASET_AMAC",
+    "DATASET_CSRC",
+    "DATASET_LABELS",
     "MAX_CATALOG_FILE_BYTES",
-    "read_json",
-    "write_json",
+    "AmacIndex",
+    "CaseRow",
+    "CsrcIndex",
+    "DatasetOverview",
+    "OrgTypeCache",
+    "SummaryIndex",
     "amac_cases_dir",
-    "amac_summaries_dir",
     "amac_reports_dir",
+    "amac_summaries_dir",
+    "build_catalog",
     "csrc_cases_dir",
     "csrc_summaries_dir",
-    "AmacIndex",
-    "CsrcIndex",
-    "SummaryIndex",
-    "OrgTypeCache",
-    "CaseRow",
-    "DatasetOverview",
-    "build_catalog",
-    "invalidate_catalog",
-    "filter_rows",
-    "read_case",
-    "resolve_case_path",
-    "iter_summary_files",
     "dataset_overview",
+    "filter_rows",
+    "invalidate_catalog",
+    "iter_summary_files",
+    "read_case",
+    "read_json",
+    "resolve_case_path",
+    "write_json",
 ]
 
 # ──────────────────────────── 常量 ────────────────────────────
 
 DATASET_AMAC = "amac"
 DATASET_CSRC = "csrc"
-DATASETS: Tuple[str, ...] = (DATASET_AMAC, DATASET_CSRC)
+DATASETS: tuple[str, ...] = (DATASET_AMAC, DATASET_CSRC)
 
-DATASET_LABELS: Dict[str, str] = {
+DATASET_LABELS: dict[str, str] = {
     DATASET_AMAC: "中基协（AMAC）",
     DATASET_CSRC: "证监会（CSRC）",
 }
 
-AMAC_CATEGORY_DIRS: Dict[str, str] = {"scfjg": "institution", "scfry": "personnel"}
-AMAC_DIR_CATEGORIES: Dict[str, str] = {v: k for k, v in AMAC_CATEGORY_DIRS.items()}
+AMAC_CATEGORY_DIRS: dict[str, str] = {"scfjg": "institution", "scfry": "personnel"}
+AMAC_DIR_CATEGORIES: dict[str, str] = {v: k for k, v in AMAC_CATEGORY_DIRS.items()}
 
-CSRC_CASE_TYPES: Tuple[str, ...] = ("penalty", "measure")
-CSRC_CASE_TYPE_LABELS: Dict[str, str] = {"penalty": "行政处罚", "measure": "监管措施"}
+CSRC_CASE_TYPES: tuple[str, ...] = ("penalty", "measure")
+CSRC_CASE_TYPE_LABELS: dict[str, str] = {"penalty": "行政处罚", "measure": "监管措施"}
 
 # 跳过超过该体积的 JSON（防止误把超大导出文件当成案例读入）
 MAX_CATALOG_FILE_BYTES = 20 * 1024 * 1024
@@ -102,13 +103,13 @@ MAX_CATALOG_FILE_BYTES = 20 * 1024 * 1024
 # ──────────────────────────── JSON 读写 ────────────────────────────
 
 
-def read_json(path: Path | str) -> Optional[Dict[str, Any]]:
+def read_json(path: Path | str) -> dict[str, Any] | None:
     """读取 JSON 文件；不存在或损坏时返回 ``None``。"""
     path = Path(path)
     try:
         if not path.exists():
             return None
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning("读取 JSON 失败 %s: %s", path.name, exc)
@@ -116,7 +117,7 @@ def read_json(path: Path | str) -> Optional[Dict[str, Any]]:
     return data if isinstance(data, dict) else None
 
 
-def write_json(path: Path | str, data: Dict[str, Any], indent: int = 2) -> Path:
+def write_json(path: Path | str, data: dict[str, Any] | list[Any], indent: int = 2) -> Path:
     """原子写入 JSON 文件（先写临时文件再替换，避免半截文件）。"""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,34 +131,34 @@ def write_json(path: Path | str, data: Dict[str, Any], indent: int = 2) -> Path:
 # ──────────────────────────── 路径解析 ────────────────────────────
 
 
-def amac_cases_dir(config: Optional[Config] = None) -> Path:
+def amac_cases_dir(config: Config | None = None) -> Path:
     return (config or get_config()).data_root("amac_cases")
 
 
-def amac_summaries_dir(config: Optional[Config] = None) -> Path:
+def amac_summaries_dir(config: Config | None = None) -> Path:
     return (config or get_config()).data_root("amac_summaries")
 
 
-def amac_reports_dir(config: Optional[Config] = None) -> Path:
+def amac_reports_dir(config: Config | None = None) -> Path:
     return (config or get_config()).data_root("amac_reports")
 
 
-def csrc_cases_dir(config: Optional[Config] = None) -> Path:
+def csrc_cases_dir(config: Config | None = None) -> Path:
     return (config or get_config()).data_root("csrc_cases")
 
 
-def csrc_summaries_dir(config: Optional[Config] = None) -> Path:
+def csrc_summaries_dir(config: Config | None = None) -> Path:
     return (config or get_config()).data_root("csrc_summaries")
 
 
 def amac_case_path(
     case_id: str,
     category: str = "",
-    config: Optional[Config] = None,
-) -> Optional[Path]:
+    config: Config | None = None,
+) -> Path | None:
     """定位 AMAC 案例原文；找不到返回 ``None``。"""
     root = amac_cases_dir(config)
-    candidates: List[str] = []
+    candidates: list[str] = []
     if category in AMAC_CATEGORY_DIRS:
         candidates.append(AMAC_CATEGORY_DIRS[category])
     else:
@@ -173,8 +174,8 @@ def csrc_case_path(
     case_id: str,
     bureau: str = "",
     case_type: str = "",
-    config: Optional[Config] = None,
-) -> Optional[Path]:
+    config: Config | None = None,
+) -> Path | None:
     """定位 CSRC 案例原文；找不到返回 ``None``。"""
     root = csrc_cases_dir(config)
     if bureau and case_type:
@@ -195,8 +196,8 @@ def resolve_case_path(
     bureau: str = "",
     case_type: str = "",
     category: str = "",
-    config: Optional[Config] = None,
-) -> Optional[Path]:
+    config: Config | None = None,
+) -> Path | None:
     """按数据集定位案例原文路径。"""
     if dataset == DATASET_AMAC:
         return amac_case_path(case_id, category, config)
@@ -207,7 +208,7 @@ def resolve_case_path(
 
 def iter_summary_files(
     dataset: str,
-    config: Optional[Config] = None,
+    config: Config | None = None,
 ) -> Iterator[Path]:
     """遍历某数据集下全部摘要文件（跳过下划线开头的索引文件）。"""
     root = amac_summaries_dir(config) if dataset == DATASET_AMAC else csrc_summaries_dir(config)
@@ -245,23 +246,23 @@ class AmacIndex:
     """
 
     FILENAME = "_index.json"
-    CATEGORIES: Tuple[str, ...] = ("Institution", "Personnel")
-    STATUSES: Tuple[str, ...] = ("total", "done", "pending", "failed")
+    CATEGORIES: tuple[str, ...] = ("Institution", "Personnel")
+    STATUSES: tuple[str, ...] = ("total", "done", "pending", "failed")
 
     def __init__(self, cases_dir: Path) -> None:
         self.cases_dir = Path(cases_dir)
         self.path = self.cases_dir / self.FILENAME
         self._lock = threading.RLock()
-        self.data: Dict[str, Any] = self._load()
+        self.data: dict[str, Any] = self._load()
 
-    def _load(self) -> Dict[str, Any]:
+    def _load(self) -> dict[str, Any]:
         data = read_json(self.path)
         if not data:
             return {"last_updated": "", "categories": {}}
         data.setdefault("categories", {})
         return data
 
-    def reload(self) -> "AmacIndex":
+    def reload(self) -> AmacIndex:
         with self._lock:
             self.data = self._load()
         return self
@@ -273,7 +274,7 @@ class AmacIndex:
 
     # ── 查询 ──
 
-    def get_category_links(self, category: str) -> List[Dict[str, Any]]:
+    def get_category_links(self, category: str) -> list[dict[str, Any]]:
         with self._lock:
             cat = self.data.get("categories", {}).get(category, {})
             return [dict(item) for item in cat.get("links", [])]
@@ -283,13 +284,17 @@ class AmacIndex:
             cat = self.data.get("categories", {}).get(category, {})
             return int(cat.get("last_crawled_page", -1))
 
-    def get_pending_links(self, category: str) -> List[Dict[str, Any]]:
-        return [item for item in self.get_category_links(category) if item.get("status") == "pending"]
+    def get_pending_links(self, category: str) -> list[dict[str, Any]]:
+        return [
+            item for item in self.get_category_links(category) if item.get("status") == "pending"
+        ]
 
-    def get_failed_links(self, category: str) -> List[Dict[str, Any]]:
-        return [item for item in self.get_category_links(category) if item.get("status") == "failed"]
+    def get_failed_links(self, category: str) -> list[dict[str, Any]]:
+        return [
+            item for item in self.get_category_links(category) if item.get("status") == "failed"
+        ]
 
-    def get_stats(self, category: str) -> Dict[str, int]:
+    def get_stats(self, category: str) -> dict[str, int]:
         with self._lock:
             links = self.get_category_links(category)
         stats = {key: 0 for key in self.STATUSES}
@@ -302,18 +307,22 @@ class AmacIndex:
 
     # ── 写入 ──
 
-    def update_category(self, category: str, links: Sequence[Dict[str, Any]], last_page: int) -> None:
+    def update_category(
+        self, category: str, links: Sequence[dict[str, Any]], last_page: int
+    ) -> None:
         """合并新发现的链接；已存在条目只刷新标题与日期，不重置状态。"""
         with self._lock:
             categories = self.data.setdefault("categories", {})
             existing = categories.get(category, {})
-            indexed: Dict[str, Dict[str, Any]] = {
+            indexed: dict[str, dict[str, Any]] = {
                 item["link_url"]: item for item in existing.get("links", [])
             }
             for link in links:
                 url = link["link_url"]
                 date_value = link.get("date", "")
-                date_str = date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value)
+                date_str = (
+                    date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value)
+                )
                 if url in indexed:
                     indexed[url]["date"] = date_str
                     indexed[url]["title"] = link.get("title", "")
@@ -352,22 +361,22 @@ class CsrcIndex:
     """CSRC 抓取索引（``{cases_dir}/_index.json``），按 ``{Bureau}/{case_type}`` 组织。"""
 
     FILENAME = "_index.json"
-    STATUSES: Tuple[str, ...] = ("total", "done", "pending", "failed", "skipped_not_fund")
+    STATUSES: tuple[str, ...] = ("total", "done", "pending", "failed", "skipped_not_fund")
 
     def __init__(self, cases_dir: Path) -> None:
         self.cases_dir = Path(cases_dir)
         self.path = self.cases_dir / self.FILENAME
         self._lock = threading.RLock()
-        self.data: Dict[str, Any] = self._load()
+        self.data: dict[str, Any] = self._load()
 
-    def _load(self) -> Dict[str, Any]:
+    def _load(self) -> dict[str, Any]:
         data = read_json(self.path)
         if not data:
             return {"last_updated": "", "sources": {}}
         data.setdefault("sources", {})
         return data
 
-    def reload(self) -> "CsrcIndex":
+    def reload(self) -> CsrcIndex:
         with self._lock:
             self.data = self._load()
         return self
@@ -381,13 +390,13 @@ class CsrcIndex:
     def source_key(bureau: str, case_type: str) -> str:
         return f"{bureau}/{case_type}"
 
-    def source_keys(self) -> List[str]:
+    def source_keys(self) -> list[str]:
         with self._lock:
             return sorted(self.data.get("sources", {}).keys())
 
     # ── 查询 ──
 
-    def get_source_links(self, source_key: str) -> List[Dict[str, Any]]:
+    def get_source_links(self, source_key: str) -> list[dict[str, Any]]:
         with self._lock:
             source = self.data.get("sources", {}).get(source_key, {})
             return [dict(item) for item in source.get("links", [])]
@@ -397,13 +406,17 @@ class CsrcIndex:
             source = self.data.get("sources", {}).get(source_key, {})
             return int(source.get("last_crawled_page", 0))
 
-    def get_pending_links(self, source_key: str) -> List[Dict[str, Any]]:
-        return [item for item in self.get_source_links(source_key) if item.get("status") == "pending"]
+    def get_pending_links(self, source_key: str) -> list[dict[str, Any]]:
+        return [
+            item for item in self.get_source_links(source_key) if item.get("status") == "pending"
+        ]
 
-    def get_failed_links(self, source_key: str) -> List[Dict[str, Any]]:
-        return [item for item in self.get_source_links(source_key) if item.get("status") == "failed"]
+    def get_failed_links(self, source_key: str) -> list[dict[str, Any]]:
+        return [
+            item for item in self.get_source_links(source_key) if item.get("status") == "failed"
+        ]
 
-    def get_stats(self, source_key: str) -> Dict[str, int]:
+    def get_stats(self, source_key: str) -> dict[str, int]:
         with self._lock:
             links = self.get_source_links(source_key)
         stats = {key: 0 for key in self.STATUSES}
@@ -414,7 +427,7 @@ class CsrcIndex:
                 stats[status] += 1
         return stats
 
-    def total_stats(self) -> Dict[str, int]:
+    def total_stats(self) -> dict[str, int]:
         """汇总全部来源的索引状态。"""
         total = {key: 0 for key in self.STATUSES}
         for source_key in self.source_keys():
@@ -422,9 +435,9 @@ class CsrcIndex:
                 total[key] += value
         return total
 
-    def link_lookup_by_content_id(self) -> Dict[str, Dict[str, Any]]:
+    def link_lookup_by_content_id(self) -> dict[str, dict[str, Any]]:
         """建立 ``内容编号 → 索引条目`` 的映射，用于补全被跳过案例的标题与日期。"""
-        lookup: Dict[str, Dict[str, Any]] = {}
+        lookup: dict[str, dict[str, Any]] = {}
         with self._lock:
             sources = dict(self.data.get("sources", {}))
         for source_key, source in sources.items():
@@ -445,17 +458,21 @@ class CsrcIndex:
 
     # ── 写入 ──
 
-    def update_source(self, source_key: str, links: Sequence[Dict[str, Any]], last_page: int) -> None:
+    def update_source(
+        self, source_key: str, links: Sequence[dict[str, Any]], last_page: int
+    ) -> None:
         with self._lock:
             sources = self.data.setdefault("sources", {})
             existing = sources.get(source_key, {})
-            indexed: Dict[str, Dict[str, Any]] = {
+            indexed: dict[str, dict[str, Any]] = {
                 item["link_url"]: item for item in existing.get("links", [])
             }
             for link in links:
                 url = link["link_url"]
                 date_value = link.get("date", "")
-                date_str = date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value)
+                date_str = (
+                    date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value)
+                )
                 if url in indexed:
                     indexed[url]["date"] = date_str
                     indexed[url]["title"] = link.get("title", "")
@@ -506,16 +523,16 @@ class SummaryIndex:
         self.summaries_dir = Path(summaries_dir)
         self.path = self.summaries_dir / self.FILENAME
         self._lock = threading.RLock()
-        self.data: Dict[str, Any] = self._load()
+        self.data: dict[str, Any] = self._load()
 
-    def _load(self) -> Dict[str, Any]:
+    def _load(self) -> dict[str, Any]:
         data = read_json(self.path)
         if not data:
             return {"last_updated": "", "cases": {}}
         data.setdefault("cases", {})
         return data
 
-    def reload(self) -> "SummaryIndex":
+    def reload(self) -> SummaryIndex:
         with self._lock:
             self.data = self._load()
         return self
@@ -527,7 +544,7 @@ class SummaryIndex:
 
     # ── 查询 ──
 
-    def info(self, case_id: str) -> Dict[str, Any]:
+    def info(self, case_id: str) -> dict[str, Any]:
         with self._lock:
             return dict(self.data.get("cases", {}).get(case_id, {}))
 
@@ -538,24 +555,26 @@ class SummaryIndex:
         """``done`` 与 ``skipped`` 都视为已处理完毕，不再重复调用模型。"""
         return self.status_of(case_id) in ("done", "skipped")
 
-    def get_pending_cases(self, all_case_ids: Sequence[str]) -> List[str]:
+    def get_pending_cases(self, all_case_ids: Sequence[str]) -> list[str]:
         return [cid for cid in all_case_ids if not self.is_done(cid)]
 
-    def get_failed_cases(self) -> List[str]:
+    def get_failed_cases(self) -> list[str]:
         with self._lock:
             return [
-                cid for cid, info in self.data.get("cases", {}).items()
+                cid
+                for cid, info in self.data.get("cases", {}).items()
                 if info.get("status") == "failed"
             ]
 
-    def get_skipped_cases(self) -> List[str]:
+    def get_skipped_cases(self) -> list[str]:
         with self._lock:
             return [
-                cid for cid, info in self.data.get("cases", {}).items()
+                cid
+                for cid, info in self.data.get("cases", {}).items()
                 if info.get("status") == "skipped"
             ]
 
-    def get_stats(self, total_count: int = 0) -> Dict[str, int]:
+    def get_stats(self, total_count: int = 0) -> dict[str, int]:
         with self._lock:
             cases = dict(self.data.get("cases", {}))
         stats = {"done": 0, "skipped": 0, "failed": 0}
@@ -613,15 +632,15 @@ class OrgTypeCache:
         self.cases_dir = Path(cases_dir)
         self.path = self.cases_dir / self.FILENAME
         self._lock = threading.RLock()
-        self.data: Dict[str, str] = self._load()
+        self.data: dict[str, str] = self._load()
 
-    def _load(self) -> Dict[str, str]:
+    def _load(self) -> dict[str, str]:
         data = read_json(self.path)
         if not data:
             return {}
         return {str(k): str(v) for k, v in data.items() if isinstance(k, str)}
 
-    def reload(self) -> "OrgTypeCache":
+    def reload(self) -> OrgTypeCache:
         with self._lock:
             self.data = self._load()
         return self
@@ -630,7 +649,7 @@ class OrgTypeCache:
         with self._lock:
             write_json(self.path, dict(self.data))
 
-    def get(self, org_name: str) -> Optional[str]:
+    def get(self, org_name: str) -> str | None:
         with self._lock:
             return self.data.get(org_name)
 
@@ -641,7 +660,7 @@ class OrgTypeCache:
             self.data[org_name] = org_type
         self.save()
 
-    def all(self) -> Dict[str, str]:
+    def all(self) -> dict[str, str]:
         with self._lock:
             return dict(self.data)
 
@@ -677,9 +696,9 @@ class CaseRow:
     source_url: str = ""
     summary_file: str = ""
     case_file: str = ""
-    status: str = "done"           # done / failed / skipped
+    status: str = "done"  # done / failed / skipped
     error: str = ""
-    note: str = ""                 # 例如非基金相关的判定理由
+    note: str = ""  # 例如非基金相关的判定理由
 
     # ── 展示辅助 ──
 
@@ -712,10 +731,10 @@ class CaseRow:
         return self.date[:7] if len(self.date) >= 7 else ""
 
     @property
-    def violation_types(self) -> List[str]:
+    def violation_types(self) -> list[str]:
         return split_multi_value(self.violation_type)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data.update(
             dataset_label=self.dataset_label,
@@ -746,14 +765,14 @@ class DatasetOverview:
     date_min: str = ""
     date_max: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 _VIOLATION_SEPARATORS = ("；", ";", "、", ",", "，", "|")
 
 
-def split_multi_value(text: str, separators: Sequence[str] = _VIOLATION_SEPARATORS) -> List[str]:
+def split_multi_value(text: str, separators: Sequence[str] = _VIOLATION_SEPARATORS) -> list[str]:
     """把顿号/分号分隔的多值字段拆成列表（去重且保持顺序）。"""
     if not text:
         return []
@@ -761,7 +780,7 @@ def split_multi_value(text: str, separators: Sequence[str] = _VIOLATION_SEPARATO
     for sep in separators:
         normalized = normalized.replace(sep, "\x00")
     seen: set[str] = set()
-    result: List[str] = []
+    result: list[str] = []
     for part in normalized.split("\x00"):
         item = part.strip()
         if item and item not in seen:
@@ -772,20 +791,17 @@ def split_multi_value(text: str, separators: Sequence[str] = _VIOLATION_SEPARATO
 
 # ──────────────────────────── 目录清单缓存 ────────────────────────────
 
-_catalog_cache: Dict[str, Tuple[Tuple[Any, ...], List[CaseRow]]] = {}
+_catalog_cache: dict[str, tuple[tuple[Any, ...], list[CaseRow]]] = {}
 _catalog_lock = threading.RLock()
 
 
-def _catalog_signature(dataset: str, config: Optional[Config] = None) -> Tuple[Any, ...]:
+def _catalog_signature(dataset: str, config: Config | None = None) -> tuple[Any, ...]:
     """用于判断缓存是否失效的信号（索引文件与摘要目录的变化）。"""
-    if dataset == DATASET_AMAC:
-        root = amac_summaries_dir(config)
-    else:
-        root = csrc_summaries_dir(config)
+    root = amac_summaries_dir(config) if dataset == DATASET_AMAC else csrc_summaries_dir(config)
     index_path = root / SummaryIndex.FILENAME
     try:
         stat = index_path.stat()
-        signature: Tuple[Any, ...] = (index_path.as_posix(), stat.st_mtime_ns, stat.st_size)
+        signature: tuple[Any, ...] = (index_path.as_posix(), stat.st_mtime_ns, stat.st_size)
     except OSError:
         signature = (index_path.as_posix(), 0, 0)
     try:
@@ -796,7 +812,7 @@ def _catalog_signature(dataset: str, config: Optional[Config] = None) -> Tuple[A
     return signature
 
 
-def invalidate_catalog(dataset: Optional[str] = None) -> None:
+def invalidate_catalog(dataset: str | None = None) -> None:
     """清除目录清单缓存；``dataset`` 为 ``None`` 时清除全部。"""
     with _catalog_lock:
         if dataset is None:
@@ -807,8 +823,8 @@ def invalidate_catalog(dataset: Optional[str] = None) -> None:
 
 def catalog_signature(
     datasets: Sequence[str] = DATASETS,
-    config: Optional[Config] = None,
-) -> Tuple[Any, ...]:
+    config: Config | None = None,
+) -> tuple[Any, ...]:
     """返回若干数据集的变更信号，可作外部缓存（如 Streamlit）的缓存键。"""
     return tuple(_catalog_signature(dataset, config) for dataset in datasets)
 
@@ -817,10 +833,10 @@ def catalog_signature(
 
 
 def _row_from_amac_summary(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     summary_path: Path,
     status: str,
-    config: Optional[Config] = None,
+    config: Config | None = None,
 ) -> CaseRow:
     category = str(data.get("category", ""))
     case_id = str(data.get("case_id", "") or summary_path.name.replace("_summary.json", ""))
@@ -832,7 +848,8 @@ def _row_from_amac_summary(
         title=str(data.get("title", "")),
         category=category,
         entity=str(data.get("punished_entity", "")),
-        entity_type=str(data.get("entity_type", "")) or ({"scfjg": "机构", "scfry": "个人"}.get(category, "")),
+        entity_type=str(data.get("entity_type", ""))
+        or ({"scfjg": "机构", "scfry": "个人"}.get(category, "")),
         org_type=str(data.get("org_type", "")),
         violation_type=str(data.get("violation_type", "")),
         punishment=str(data.get("punishment", "")),
@@ -848,10 +865,10 @@ def _row_from_amac_summary(
 
 
 def _row_from_csrc_summary(
-    data: Dict[str, Any],
+    data: dict[str, Any],
     summary_path: Path,
     status: str,
-    config: Optional[Config] = None,
+    config: Config | None = None,
 ) -> CaseRow:
     bureau = str(data.get("bureau", ""))
     case_type = str(data.get("case_type", ""))
@@ -881,10 +898,10 @@ def _row_from_csrc_summary(
     )
 
 
-def _build_amac_catalog(config: Optional[Config]) -> List[CaseRow]:
+def _build_amac_catalog(config: Config | None) -> list[CaseRow]:
     summaries_root = amac_summaries_dir(config)
     index = SummaryIndex(summaries_root)
-    rows: List[CaseRow] = []
+    rows: list[CaseRow] = []
     for path in iter_summary_files(DATASET_AMAC, config):
         data = read_json(path)
         if not data:
@@ -894,10 +911,10 @@ def _build_amac_catalog(config: Optional[Config]) -> List[CaseRow]:
     return rows
 
 
-def _build_csrc_catalog(config: Optional[Config]) -> List[CaseRow]:
+def _build_csrc_catalog(config: Config | None) -> list[CaseRow]:
     summaries_root = csrc_summaries_dir(config)
     index = SummaryIndex(summaries_root)
-    rows: List[CaseRow] = []
+    rows: list[CaseRow] = []
     seen: set[str] = set()
 
     for path in iter_summary_files(DATASET_CSRC, config):
@@ -915,7 +932,7 @@ def _build_csrc_catalog(config: Optional[Config]) -> List[CaseRow]:
         rows.append(row)
 
     # 被判定为非基金相关的案例没有摘要文件，从索引补建行以便统计与展示
-    lookup: Optional[Dict[str, Dict[str, Any]]] = None
+    lookup: dict[str, dict[str, Any]] | None = None
     for case_id in index.get_skipped_cases():
         if case_id in seen:
             continue
@@ -924,7 +941,7 @@ def _build_csrc_catalog(config: Optional[Config]) -> List[CaseRow]:
         if lookup is None:
             try:
                 lookup = CsrcIndex(csrc_cases_dir(config)).link_lookup_by_content_id()
-            except Exception:  # noqa: BLE001 - 索引缺失时降级为无标题行
+            except Exception:
                 lookup = {}
         meta = lookup.get(content_id, {})
         rows.append(
@@ -946,9 +963,9 @@ def _build_csrc_catalog(config: Optional[Config]) -> List[CaseRow]:
 
 def build_catalog(
     dataset: str,
-    config: Optional[Config] = None,
+    config: Config | None = None,
     force: bool = False,
-) -> List[CaseRow]:
+) -> list[CaseRow]:
     """构建（并缓存）某数据集的案例清单。
 
     Args:
@@ -976,11 +993,11 @@ def build_catalog(
 
 
 def build_all_catalogs(
-    config: Optional[Config] = None,
+    config: Config | None = None,
     force: bool = False,
-) -> List[CaseRow]:
+) -> list[CaseRow]:
     """返回两个数据集的合并清单（按日期倒序）。"""
-    rows: List[CaseRow] = []
+    rows: list[CaseRow] = []
     for dataset in DATASETS:
         rows.extend(build_catalog(dataset, config, force=force))
     rows.sort(key=lambda row: (row.date, row.case_id), reverse=True)
@@ -992,17 +1009,17 @@ def build_all_catalogs(
 
 def filter_rows(
     rows: Iterable[CaseRow],
-    datasets: Optional[Sequence[str]] = None,
-    entity_types: Optional[Sequence[str]] = None,
-    violation_types: Optional[Sequence[str]] = None,
-    statuses: Optional[Sequence[str]] = None,
-    bureaus: Optional[Sequence[str]] = None,
-    case_types: Optional[Sequence[str]] = None,
+    datasets: Sequence[str] | None = None,
+    entity_types: Sequence[str] | None = None,
+    violation_types: Sequence[str] | None = None,
+    statuses: Sequence[str] | None = None,
+    bureaus: Sequence[str] | None = None,
+    case_types: Sequence[str] | None = None,
     date_from: str = "",
     date_to: str = "",
     keyword: str = "",
-    limit: Optional[int] = None,
-) -> List[CaseRow]:
+    limit: int | None = None,
+) -> list[CaseRow]:
     """按多维条件筛选案例行。
 
     ``violation_types`` 为「或」语义：命中其中任意一个违规类型即保留；
@@ -1016,7 +1033,7 @@ def filter_rows(
     case_type_set = set(case_types) if case_types else None
     needle = keyword.strip().lower()
 
-    result: List[CaseRow] = []
+    result: list[CaseRow] = []
     for row in rows:
         if dataset_set and row.dataset not in dataset_set:
             continue
@@ -1052,8 +1069,8 @@ def read_case(
     bureau: str = "",
     case_type: str = "",
     category: str = "",
-    config: Optional[Config] = None,
-) -> Optional[Dict[str, Any]]:
+    config: Config | None = None,
+) -> dict[str, Any] | None:
     """读取案例原文 JSON（含 ``raw_text``）。"""
     path = resolve_case_path(dataset, case_id, bureau, case_type, category, config)
     if path is None:
@@ -1064,7 +1081,7 @@ def read_case(
 
 def dataset_overview(
     dataset: str,
-    config: Optional[Config] = None,
+    config: Config | None = None,
     force: bool = False,
 ) -> DatasetOverview:
     """汇总某数据集的规模与状态指标。"""
@@ -1085,7 +1102,9 @@ def dataset_overview(
         dataset=dataset,
         label=DATASET_LABELS[dataset],
         case_files=sum(1 for path in cases_root.rglob("*.json") if not path.name.startswith("_")),
-        summary_files=sum(1 for path in summaries_root.rglob("*_summary.json") if not path.name.startswith("_")),
+        summary_files=sum(
+            1 for path in summaries_root.rglob("*_summary.json") if not path.name.startswith("_")
+        ),
     )
 
     for row in rows:
@@ -1104,5 +1123,7 @@ def dataset_overview(
     if dates:
         overview.date_min = dates[0]
         overview.date_max = dates[-1]
-    overview.pending = max(0, overview.case_files - overview.done - overview.skipped - overview.failed)
+    overview.pending = max(
+        0, overview.case_files - overview.done - overview.skipped - overview.failed
+    )
     return overview

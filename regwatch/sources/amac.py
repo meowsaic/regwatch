@@ -18,14 +18,15 @@ import re
 import threading
 import time
 import traceback
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 from urllib.parse import urljoin
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from requests.adapters import HTTPAdapter, Retry
 
 from ..config import Config, get_config
@@ -33,6 +34,7 @@ from ..llm import LLMError, get_llm
 from ..logutil import configure_logging, get_logger
 from ..org_type import extract_punished_entity, resolve_org_type
 from ..storage import AmacIndex, OrgTypeCache, write_json
+from ._html import as_tag, attr_str
 
 logger = get_logger("sources.amac")
 
@@ -69,12 +71,13 @@ MAX_CONSECUTIVE_PAGE_FAILURES = 3
 
 # ──────────────────────────── 数据模型 ────────────────────────────
 
+
 @dataclass
 class CaseData:
     case_id: str
     source_url: str
     source_type: str  # "html" | "pdf_direct" | "pdf_embedded"
-    category: str     # "scfjg" | "scfry"
+    category: str  # "scfjg" | "scfry"
     title: str
     date: str
     raw_text: str = ""
@@ -91,6 +94,7 @@ class CaseData:
 # 索引实现已统一收敛到 regwatch.storage，这里保留别名以兼容原有调用点。
 CaseIndex = AmacIndex
 # ──────────────────────────── HTTP Session ────────────────────────────
+
 
 class SessionManager:
     _instance = None
@@ -132,6 +136,7 @@ class SessionManager:
 
 # ──────────────────────────── 工具函数 ────────────────────────────
 
+
 def extract_id_from_url(url: str) -> str:
     m = re.search(r"(P\d{20,})", url)
     if m:
@@ -145,7 +150,7 @@ def extract_id_from_url(url: str) -> str:
     return re.sub(r"[^a-zA-Z0-9]", "_", url.split("/")[-1])[:60]
 
 
-def parse_date_from_text(text: str) -> Optional[datetime.date]:
+def parse_date_from_text(text: str) -> date | None:
     m = re.search(r"(\d{4})\s*-\s*(\d{2})\s*-\s*(\d{2})", text)
     if m:
         try:
@@ -155,7 +160,7 @@ def parse_date_from_text(text: str) -> Optional[datetime.date]:
     return None
 
 
-def get_last_quarter_range() -> Tuple[datetime.date, datetime.date]:
+def get_last_quarter_range() -> tuple[date, date]:
     today = datetime.now()
     y, q = today.year, (today.month - 1) // 3 + 1
     if q == 1:
@@ -178,7 +183,8 @@ def sanitize_filename(name: str) -> str:
 
 # ──────────────────────────── HTML 页面获取 ────────────────────────────
 
-def fetch_html_page(html_url: str) -> Optional[BeautifulSoup]:
+
+def fetch_html_page(html_url: str) -> BeautifulSoup | None:
     """获取HTML页面并返回BeautifulSoup对象，供后续提取文本和PDF链接共用"""
     try:
         session = SessionManager()
@@ -194,7 +200,8 @@ def fetch_html_page(html_url: str) -> Optional[BeautifulSoup]:
 
 # ──────────────────────────── HTML 正文提取 ────────────────────────────
 
-def extract_text_from_html(html_url: str, soup: Optional[BeautifulSoup] = None) -> Optional[str]:
+
+def extract_text_from_html(html_url: str, soup: BeautifulSoup | None = None) -> str | None:
     """从HTML详情页提取纪律处分决定书正文"""
     try:
         if soup is None:
@@ -202,7 +209,7 @@ def extract_text_from_html(html_url: str, soup: Optional[BeautifulSoup] = None) 
         if soup is None:
             return None
 
-        content_area = (
+        content_area = as_tag(
             soup.find("div", class_="TRS_Editor")
             or soup.find("div", class_="Custom_UnionStyle")
             or soup.find("div", class_=re.compile(r"detail|article|content|text", re.I))
@@ -210,9 +217,7 @@ def extract_text_from_html(html_url: str, soup: Optional[BeautifulSoup] = None) 
             or soup.find("div", class_="TRAIS-info-content")
         )
         if not content_area:
-            main_div = soup.find("div", class_=re.compile(r"right|main"))
-            if main_div:
-                content_area = main_div
+            content_area = as_tag(soup.find("div", class_=re.compile(r"right|main")))
 
         if content_area:
             for tag in content_area.find_all(["script", "style", "nav", "header", "footer"]):
@@ -235,7 +240,8 @@ def extract_text_from_html(html_url: str, soup: Optional[BeautifulSoup] = None) 
 
 # ──────────────────────────── 中间页→PDF 链接发现 ────────────────────────────
 
-def find_pdf_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -> Optional[str]:
+
+def find_pdf_link_in_page(page_url: str, soup: BeautifulSoup | None = None) -> str | None:
     """从HTML页查找内嵌的PDF链接（优先查找附件下载区，避免误取侧边栏链接）"""
     try:
         if soup is None:
@@ -246,7 +252,7 @@ def find_pdf_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -
         # 1) 优先在 class="attachment-down" 的容器中查找
         for container in soup.find_all("div", class_="attachment-down"):
             for link in container.find_all("a", href=True):
-                href = link["href"]
+                href = attr_str(link, "href")
                 if ".pdf" in href.lower():
                     pdf_url = urljoin(page_url, href)
                     logger.info(f"  [附件区PDF] {pdf_url}")
@@ -254,19 +260,21 @@ def find_pdf_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -
 
         # 2) 在包含"附件"文字的标题/段落附近查找
         for heading in soup.find_all(string=re.compile(r"附件.*下载|下载.*附件")):
-            parent_div = heading.find_parent("div")
+            parent_div = as_tag(heading.find_parent("div"))
             if parent_div:
                 for link in parent_div.find_all("a", href=True):
-                    href = link["href"]
+                    href = attr_str(link, "href")
                     if ".pdf" in href.lower():
                         pdf_url = urljoin(page_url, href)
                         logger.info(f"  [附件区PDF] {pdf_url}")
                         return pdf_url
 
         # 3) 在 class 含 fujian/attachment/download 的容器中查找
-        for container in soup.find_all("div", class_=re.compile(r"fujian|attachment|download|accessory", re.I)):
+        for container in soup.find_all(
+            "div", class_=re.compile(r"fujian|attachment|download|accessory", re.I)
+        ):
             for link in container.find_all("a", href=True):
-                href = link["href"]
+                href = attr_str(link, "href")
                 if ".pdf" in href.lower():
                     pdf_url = urljoin(page_url, href)
                     logger.info(f"  [下载区PDF] {pdf_url}")
@@ -275,7 +283,7 @@ def find_pdf_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -
         # 4) 全页面查找，但过滤掉侧边栏链接（路径含 hydj/xwfb/hdjl/hyyj/sjtj 等非纪律处分路径）
         sidebar_prefixes = ("hydj", "xwfb", "hdjl", "hyyj", "sjtj")
         for link in soup.find_all("a", href=True):
-            href = link["href"]
+            href = attr_str(link, "href")
             if ".pdf" not in href.lower():
                 continue
             parts = href.replace("\\", "/").split("/")
@@ -286,13 +294,15 @@ def find_pdf_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -
             return pdf_url
 
         # 5) iframe / embed
-        iframe = soup.find("iframe", src=True)
-        if iframe and ".pdf" in iframe["src"].lower():
-            return urljoin(page_url, iframe["src"])
+        iframe = as_tag(soup.find("iframe", src=True))
+        iframe_src = attr_str(iframe, "src")
+        if iframe and ".pdf" in iframe_src.lower():
+            return urljoin(page_url, iframe_src)
 
         for embed in soup.find_all("embed", src=True):
-            if ".pdf" in embed["src"].lower():
-                return urljoin(page_url, embed["src"])
+            embed_src = attr_str(embed, "src")
+            if ".pdf" in embed_src.lower():
+                return urljoin(page_url, embed_src)
 
         return None
     except Exception as e:
@@ -319,7 +329,7 @@ PDF_OCR_PROMPT = (
 )
 
 
-def extract_text_from_pdf_url(pdf_url: str) -> Optional[str]:
+def extract_text_from_pdf_url(pdf_url: str) -> str | None:
     """把 PDF 的 URL 交给视觉模型识别，返回逐字全文。
 
     使用 ``vision`` 任务绑定的模型；模型未单独配置视觉能力时会回落到文本模型。
@@ -336,7 +346,7 @@ def extract_text_from_pdf_url(pdf_url: str) -> Optional[str]:
             logger.warning("  [PDF→文本] 模型返回空内容")
         except LLMError as exc:
             logger.warning("  [PDF→文本] 第 %d 次调用失败: %s", attempt + 1, exc)
-        except Exception as exc:  # noqa: BLE001 - 网络/解析异常统一重试
+        except Exception as exc:
             logger.warning("  [PDF→文本] 第 %d 次异常: %s", attempt + 1, exc)
 
         if attempt < OCR_MAX_RETRIES - 1:
@@ -349,21 +359,22 @@ def extract_text_from_pdf_url(pdf_url: str) -> Optional[str]:
 
 # ──────────────────────────── 单案例处理 ────────────────────────────
 
+
 def process_case(
     link_url: str,
     raw_title: str,
-    item_date: datetime.date,
+    item_date: date,
     category_key: str,
     output_dir: Path,
-    org_type_cache: Optional[OrgTypeCache] = None,
-) -> Optional[CaseData]:
+    org_type_cache: OrgTypeCache | None = None,
+) -> CaseData | None:
     """处理单个案例链接，返回CaseData或None"""
 
     case_id = extract_id_from_url(link_url)
     json_path = output_dir / f"{case_id}.json"
 
     if json_path.exists():
-        with open(json_path, "r", encoding="utf-8") as f:
+        with open(json_path, encoding="utf-8") as f:
             existing = json.load(f)
         existing_case = CaseData(**existing)
         if existing_case.ocr_success and existing_case.source_type != "html":
@@ -375,8 +386,10 @@ def process_case(
             logger.info(f"  [重试] 删除之前失败的记录: {case_id} ({existing_case.error})")
             json_path.unlink()
 
-    full_link = link_url if link_url.startswith("http") else urljoin(
-        CATEGORIES[category_key]["url"], link_url
+    full_link = (
+        link_url
+        if link_url.startswith("http")
+        else urljoin(CATEGORIES[category_key]["url"], link_url)
     )
 
     source_type = "unknown"
@@ -411,7 +424,7 @@ def process_case(
                 source_type = "html"
                 raw_text = html_text
                 if json_path.exists():
-                    with open(json_path, "r", encoding="utf-8") as f:
+                    with open(json_path, encoding="utf-8") as f:
                         old = json.load(f)
                     if old.get("source_type") == "html" and old.get("ocr_success"):
                         logger.info(f"  [确认] 纯HTML正文，无需重抓: {case_id}")
@@ -423,7 +436,9 @@ def process_case(
                 logger.warning(f"  [无内容] {raw_title} - HTML无正文且未找到PDF链接")
 
     punished_entity = extract_punished_entity(raw_title, raw_text or "", category_key)
-    org_type = resolve_org_type(raw_title, raw_text or "", category_key, org_type_cache, punished_entity)
+    org_type = resolve_org_type(
+        raw_title, raw_text or "", category_key, org_type_cache, punished_entity
+    )
 
     case = CaseData(
         case_id=case_id,
@@ -451,11 +466,12 @@ def process_case(
 
 # ──────────────────────────── 列表页爬取 ────────────────────────────
 
+
 def collect_case_links(
     category_key: str,
-    start_date: datetime.date,
-    end_date: datetime.date,
-) -> List[Dict]:
+    start_date: date,
+    end_date: date,
+) -> list[dict]:
     """从列表页收集案例链接，返回 [{link_url, title, date}, ...]"""
     config = CATEGORIES[category_key]
     base_url = config["url"]
@@ -492,7 +508,7 @@ def collect_case_links(
                     ".list ul li",
                     ".content ul li",
                 ]
-                items = []
+                items: list[Tag] = []
                 for sel in selectors:
                     found = soup.select(sel)
                     if found:
@@ -500,10 +516,11 @@ def collect_case_links(
                         break
 
                 if not items:
-                    main_area = soup.find("div", class_=re.compile(r"right|main"))
+                    main_area = as_tag(soup.find("div", class_=re.compile(r"right|main")))
                     if main_area:
                         items = [
-                            li for li in main_area.find_all("li")
+                            li
+                            for li in main_area.find_all("li")
                             if len(li.get_text(strip=True)) > 10
                         ]
 
@@ -515,13 +532,13 @@ def collect_case_links(
 
                 page_count = 0
                 for item in items:
-                    link_tag = item.find("a", href=True)
-                    if not link_tag:
+                    link_tag = as_tag(item.find("a", href=True))
+                    if link_tag is None:
                         continue
 
                     full_row_text = item.get_text(strip=True)
                     raw_title = link_tag.get_text(strip=True)
-                    link_url = link_tag["href"]
+                    link_url = attr_str(link_tag, "href")
 
                     item_date = parse_date_from_text(full_row_text)
                     if not item_date:
@@ -534,11 +551,13 @@ def collect_case_links(
                         should_stop = True
                         break
 
-                    results.append({
-                        "link_url": link_url,
-                        "title": raw_title,
-                        "date": item_date,
-                    })
+                    results.append(
+                        {
+                            "link_url": link_url,
+                            "title": raw_title,
+                            "date": item_date,
+                        }
+                    )
                     page_count += 1
 
                 logger.info(f"  第 {page_index + 1} 页收集到 {page_count} 个案例")
@@ -548,7 +567,9 @@ def collect_case_links(
             except Exception as e:
                 if retry < LIST_PAGE_RETRIES - 1:
                     wait = 3 * (retry + 1)
-                    logger.warning(f"列表页请求失败 (重试 {retry + 1}/{LIST_PAGE_RETRIES}): {e}，{wait}秒后重试...")
+                    logger.warning(
+                        f"列表页请求失败 (重试 {retry + 1}/{LIST_PAGE_RETRIES}): {e}，{wait}秒后重试..."
+                    )
                     time.sleep(wait)
                 else:
                     logger.error(f"列表页处理出错 (已重试{LIST_PAGE_RETRIES}次): {e}")
@@ -558,7 +579,9 @@ def collect_case_links(
 
         if not page_ok:
             consecutive_failures += 1
-            logger.warning(f"第 {page_index + 1} 页跳过 (连续失败 {consecutive_failures}/{MAX_CONSECUTIVE_PAGE_FAILURES})")
+            logger.warning(
+                f"第 {page_index + 1} 页跳过 (连续失败 {consecutive_failures}/{MAX_CONSECUTIVE_PAGE_FAILURES})"
+            )
             if consecutive_failures >= MAX_CONSECUTIVE_PAGE_FAILURES:
                 logger.error(f"连续 {MAX_CONSECUTIVE_PAGE_FAILURES} 页失败，停止翻页")
                 break
@@ -575,24 +598,27 @@ def collect_case_links(
 
 # ──────────────────────────── 批量处理 ────────────────────────────
 
+
 def fetch_category(
     category_key: str,
-    start_date: datetime.date,
-    end_date: datetime.date,
+    start_date: date,
+    end_date: date,
     output_dir: Path,
     index: CaseIndex,
-    org_type_cache: Optional[OrgTypeCache] = None,
-    on_progress: Optional[Callable[[int, int, str], None]] = None,
-) -> Tuple[int, int]:
+    org_type_cache: OrgTypeCache | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
+) -> tuple[int, int]:
     """抓取一个分类下的所有案例"""
     config = CATEGORIES[category_key]
-    logger.info(f"{'='*20} {config['name']} {'='*20}")
+    logger.info(f"{'=' * 20} {config['name']} {'=' * 20}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     stats = index.get_stats(category_key)
-    logger.info(f"索引状态: 总计 {stats['total']}, 已完成 {stats['done']}, "
-                f"待处理 {stats['pending']}, 失败 {stats['failed']}")
+    logger.info(
+        f"索引状态: 总计 {stats['total']}, 已完成 {stats['done']}, "
+        f"待处理 {stats['pending']}, 失败 {stats['failed']}"
+    )
 
     logger.info("从官网爬取案例列表 (列表页成本低，每次都刷新以确保完整性)...")
     case_links = collect_case_links(category_key, start_date, end_date)
@@ -605,15 +631,18 @@ def fetch_category(
     logger.info(f"列表页收集到 {len(case_links)} 个案例，其中 {new_count} 个为新发现")
 
     pending = index.get_pending_links(category_key)
-    failed_links = [item for item in index.get_category_links(category_key)
-                    if item.get("status") == "failed"]
+    failed_links = [
+        item for item in index.get_category_links(category_key) if item.get("status") == "failed"
+    ]
     to_process = pending + failed_links
 
     if not to_process:
         logger.info(f"{config['name']}: 无待处理案例")
         return stats["done"], 0
 
-    logger.info(f"待处理: {len(pending)} pending + {len(failed_links)} failed = {len(to_process)} 个")
+    logger.info(
+        f"待处理: {len(pending)} pending + {len(failed_links)} failed = {len(to_process)} 个"
+    )
 
     success = 0
     fail = 0
@@ -665,7 +694,9 @@ def fetch_category(
     logger.info(f"  索引总计: {final_stats['done']} done / {final_stats['total']} total")
     return success, fail
 
+
 # ──────────────────────────── 对外抓取 API ────────────────────────────
+
 
 @dataclass
 class FetchResult:
@@ -674,13 +705,13 @@ class FetchResult:
     dataset: str = "amac"
     success: int = 0
     failed: int = 0
-    detail: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    detail: dict[str, dict[str, int]] = field(default_factory=dict)
 
     @property
     def total(self) -> int:
         return self.success + self.failed
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "dataset": self.dataset,
             "success": self.success,
@@ -691,11 +722,11 @@ class FetchResult:
 
 
 def fetch(
-    start_date: Optional[datetime.date] = None,
-    end_date: Optional[datetime.date] = None,
-    categories: Optional[List[str]] = None,
-    config: Optional[Config] = None,
-    on_progress: Optional[Callable[[int, int, str], None]] = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    categories: list[str] | None = None,
+    config: Config | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> FetchResult:
     """抓取指定日期范围内的 AMAC 纪律处分案例。
 
@@ -750,15 +781,17 @@ def fetch(
 
     logger.info(
         "AMAC 抓取完成：成功 %d，失败 %d，耗时 %.1f 秒",
-        result.success, result.failed, time.time() - started,
+        result.success,
+        result.failed,
+        time.time() - started,
     )
     return result
 
 
 def fetch_pending(
-    categories: Optional[List[str]] = None,
-    config: Optional[Config] = None,
-    on_progress: Optional[Callable[[int, int, str], None]] = None,
+    categories: list[str] | None = None,
+    config: Config | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> FetchResult:
     """断点续传：处理索引中全部 ``pending`` 与 ``failed`` 的案例。"""
     logger.info("断点续传模式：处理索引中未完成与失败的案例")
@@ -774,8 +807,8 @@ def fetch_pending(
 def fetch_single(
     url: str,
     category: str = "Institution",
-    config: Optional[Config] = None,
-) -> Optional[CaseData]:
+    config: Config | None = None,
+) -> CaseData | None:
     """抓取单个案例 URL 并落库。"""
     cfg = config or get_config()
     cases_root = cfg.data_root("amac_cases")

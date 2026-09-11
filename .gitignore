@@ -33,6 +33,9 @@ env/
 .ruff_cache/
 .mypy_cache/
 
+# Compose Next / 隔离工作区
+.worktrees/
+
 # ──────────────────────── 本地配置（含密钥，仅 config.example.json 入库） ────────────────────────
 config.json
 config.local.json

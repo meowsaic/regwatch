@@ -28,7 +28,9 @@ class CsrcUtilsTests(unittest.TestCase):
     def test_parse_date_from_text(self):
         self.assertEqual(csrc.parse_date_from_text("2026-02-13"), date(2026, 2, 13))
         self.assertEqual(csrc.parse_date_from_text("2026年2月13日"), date(2026, 2, 13))
-        self.assertEqual(csrc.parse_date_from_text("发布时间：2025-12-31 08:30"), date(2025, 12, 31))
+        self.assertEqual(
+            csrc.parse_date_from_text("发布时间：2025-12-31 08:30"), date(2025, 12, 31)
+        )
         self.assertIsNone(csrc.parse_date_from_text(""))
         self.assertIsNone(csrc.parse_date_from_text("not a date"))
 
@@ -49,7 +51,10 @@ class CsrcUtilsTests(unittest.TestCase):
         self.assertFalse(csrc.is_fund_by_content(""))
 
     def test_extract_document_number(self):
-        self.assertEqual(csrc.extract_document_number("当事人：某某公司。沪证监〔2023〕31号"), "沪证监〔2023〕31号")
+        self.assertEqual(
+            csrc.extract_document_number("当事人：某某公司。沪证监〔2023〕31号"),
+            "沪证监〔2023〕31号",
+        )
         self.assertEqual(csrc.extract_document_number(""), "")
 
     def test_extract_org_name_from_title(self):
@@ -93,6 +98,7 @@ class AmacUtilsTests(unittest.TestCase):
 
     def test_case_index_alias(self):
         from regwatch.storage import AmacIndex
+
         self.assertIs(amac.CaseIndex, AmacIndex)
 
     def test_get_last_quarter_range(self):
@@ -108,7 +114,9 @@ class OrgTypeTests(unittest.TestCase):
         self.assertIn("私募证券投资基金管理人", org_type.ORG_TYPE_VALUES)
 
     def test_extract_org_type_from_text(self):
-        text = "当事人为私募股权、创业投资基金管理人，登记编号P1234567，存在违规行为。" + "补充" * 60
+        text = (
+            "当事人为私募股权、创业投资基金管理人，登记编号P1234567，存在违规行为。" + "补充" * 60
+        )
         self.assertEqual(
             org_type.extract_org_type_from_text("某公司", text),
             "私募股权、创业投资基金管理人",
@@ -132,7 +140,9 @@ class OrgTypeTests(unittest.TestCase):
 
     def test_extract_punished_entity_skips_personnel(self):
         self.assertEqual(
-            org_type.extract_punished_entity("关于对某投资管理有限公司的纪律处分决定书", "", "Personnel"),
+            org_type.extract_punished_entity(
+                "关于对某投资管理有限公司的纪律处分决定书", "", "Personnel"
+            ),
             "",
         )
 
@@ -150,7 +160,11 @@ class OrgTypeTests(unittest.TestCase):
 
         cache = FakeCache()
         result = org_type.resolve_org_type(
-            "关于对某投资管理有限公司的纪律处分决定书", "", "Institution", cache, "某投资管理有限公司",
+            "关于对某投资管理有限公司的纪律处分决定书",
+            "",
+            "Institution",
+            cache,
+            "某投资管理有限公司",
         )
         self.assertEqual(result, "私募证券投资基金管理人")
         self.assertEqual(cache.hits, 1)

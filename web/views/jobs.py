@@ -13,16 +13,17 @@ for _path in (str(_HERE.parents[2]), str(_HERE.parents[1])):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from components import ui  # noqa: E402
-from components.data import clear_data_cache  # noqa: E402
-from regwatch.jobs import (  # noqa: E402
+from regwatch.jobs import (
     JOB_KINDS,
     JOB_LABELS,
     JOB_PARAMS,
     JobError,
     get_job_manager,
 )
-from regwatch.storage import DATASET_LABELS  # noqa: E402
+from regwatch.storage import DATASET_LABELS
+
+from components import ui
+from components.data import clear_data_cache
 
 ui.apply_theme()
 
@@ -48,11 +49,18 @@ with st.container(border=True):
             elif key == "dataset":
                 options = ["all", "amac", "csrc"]
                 values[key] = st.selectbox(
-                    label, options,
+                    label,
+                    options,
                     index=options.index(str(default)) if default in options else 0,
                     format_func=lambda x: "全部" if x == "all" else DATASET_LABELS.get(x, x),
                     help=hint,
                 )
+            elif key in ("start_date", "end_date"):
+                # 日期参数用 date_input；留空表示不限制（底层仍收 YYYY-MM-DD 字符串）
+                picked = st.date_input(label, value=None, help=hint, key=f"job_{kind}_{key}")
+                if isinstance(picked, (tuple, list)):
+                    picked = picked[0] if picked else None
+                values[key] = picked.isoformat() if picked else ""
             elif isinstance(default, int):
                 values[key] = st.number_input(label, value=int(default), step=1, help=hint)
             else:
@@ -87,10 +95,12 @@ else:
         is_running = record.status.value == "running"
         any_running = any_running or is_running
         progress = record.progress
-        title_row = ui.badges([
-            (record.title, "primary"),
-            (record.id, "muted"),
-        ])
+        title_row = ui.badges(
+            [
+                (record.title, "primary"),
+                (record.id, "muted"),
+            ]
+        )
         status_html = ui.status_badge(record.status.value)
         meta = f"创建 {record.created_at}"
         if record.started_at:
@@ -101,7 +111,7 @@ else:
             top_left, top_right = st.columns([4, 1])
             with top_left:
                 st.markdown(
-                    f'<div>{title_row}{status_html}</div>'
+                    f"<div>{title_row}{status_html}</div>"
                     f'<div style="font-size:12px;color:#94A3B8;margin-top:2px">{meta}</div>',
                     unsafe_allow_html=True,
                 )

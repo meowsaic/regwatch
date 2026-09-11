@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
+from typing import Any
 
 import requests
 
@@ -70,8 +71,7 @@ ORG_TYPE_VALUES = [
 ]
 
 
-
-def extract_org_name_from_title(title: str) -> Optional[str]:
+def extract_org_name_from_title(title: str) -> str | None:
     """从纪律处分标题中提取机构名称"""
     patterns = [
         r"关于对[《]?([^》]+?)[》]?(?:的)?(?:纪律处分|撤销|注销|暂停|取消)",
@@ -81,9 +81,17 @@ def extract_org_name_from_title(title: str) -> Optional[str]:
         m = re.search(pattern, title)
         if m:
             name = m.group(1).strip()
-            for suffix in ["的纪律处分决定书", "纪律处分决定书", "的决定书", "决定书",
-                           "送达公告", "（送达公告）", "(送达公告)",
-                           "事先告知书", "复核决定书"]:
+            for suffix in [
+                "的纪律处分决定书",
+                "纪律处分决定书",
+                "的决定书",
+                "决定书",
+                "送达公告",
+                "（送达公告）",
+                "(送达公告)",
+                "事先告知书",
+                "复核决定书",
+            ]:
                 name = name.replace(suffix, "")
             name = name.rstrip("的、，,")
             if len(name) >= 4:
@@ -95,9 +103,11 @@ def extract_org_name_from_title(title: str) -> Optional[str]:
         parts = re.split(r"[、，,]", inner)
         for part in parts:
             part = part.strip()
-            if re.search(r"(?:公司|企业|基金|合伙|中心|集团|事务所|有限|资本|投资)", part):
-                if len(part) >= 4:
-                    return part
+            if (
+                re.search(r"(?:公司|企业|基金|合伙|中心|集团|事务所|有限|资本|投资)", part)
+                and len(part) >= 4
+            ):
+                return part
 
     m = re.search(r"([^\s,，、（）\(\)]+(?:公司|企业|基金|合伙|中心|集团|事务所|有限|资本))", title)
     if m:
@@ -107,13 +117,20 @@ def extract_org_name_from_title(title: str) -> Optional[str]:
     return None
 
 
-def query_org_type_from_amac(org_name: str) -> Optional[str]:
+def query_org_type_from_amac(org_name: str) -> str | None:
     """从中基协活跃管理人API查询机构类型"""
     if len(org_name) < 4:
         return None
 
-    generic_suffixes = ["有限公司", "股份有限公司", "投资有限公司", "管理有限公司",
-                        "基金管理有限公司", "资本管理有限公司", "资产管理有限公司"]
+    generic_suffixes = [
+        "有限公司",
+        "股份有限公司",
+        "投资有限公司",
+        "管理有限公司",
+        "基金管理有限公司",
+        "资本管理有限公司",
+        "资产管理有限公司",
+    ]
     if org_name in generic_suffixes:
         return None
 
@@ -164,7 +181,7 @@ CANCELLED_API_MAX_RETRIES = 3
 CANCELLED_API_RETRY_DELAY = 3
 
 
-def query_org_type_from_amac_cancelled(org_name: str) -> Optional[str]:
+def query_org_type_from_amac_cancelled(org_name: str) -> str | None:
     """从中基协已注销管理人API查询机构类型（注销前登记类型）
 
     搜索API受WAF保护，脚本调用大部分时候返回400，偶尔能成功。
@@ -174,8 +191,15 @@ def query_org_type_from_amac_cancelled(org_name: str) -> Optional[str]:
     if len(org_name) < 4:
         return None
 
-    generic_suffixes = ["有限公司", "股份有限公司", "投资有限公司", "管理有限公司",
-                        "基金管理有限公司", "资本管理有限公司", "资产管理有限公司"]
+    generic_suffixes = [
+        "有限公司",
+        "股份有限公司",
+        "投资有限公司",
+        "管理有限公司",
+        "基金管理有限公司",
+        "资本管理有限公司",
+        "资产管理有限公司",
+    ]
     if org_name in generic_suffixes:
         return None
 
@@ -193,7 +217,9 @@ def query_org_type_from_amac_cancelled(org_name: str) -> Optional[str]:
             )
             if resp.status_code != 200:
                 logger.debug(
-                    "  [已注销API] 第%d次查询失败 status=%d", attempt, resp.status_code,
+                    "  [已注销API] 第%d次查询失败 status=%d",
+                    attempt,
+                    resp.status_code,
                 )
                 if attempt < CANCELLED_API_MAX_RETRIES:
                     time.sleep(CANCELLED_API_RETRY_DELAY)
@@ -254,7 +280,7 @@ def query_org_type_from_amac_cancelled(org_name: str) -> Optional[str]:
     return None
 
 
-def extract_org_type_from_text(org_name: str, raw_text: str) -> Optional[str]:
+def extract_org_type_from_text(org_name: str, raw_text: str) -> str | None:
     """从案例正文中正则匹配机构类型（仅当正文恰好包含类型字符串时）"""
     if not raw_text or len(raw_text) < 100:
         return None
@@ -269,7 +295,7 @@ def extract_org_type_from_text(org_name: str, raw_text: str) -> Optional[str]:
     return None
 
 
-def extract_full_org_name_from_text(short_name: Optional[str], raw_text: str) -> Optional[str]:
+def extract_full_org_name_from_text(short_name: str | None, raw_text: str) -> str | None:
     """从正文正则提取机构完整名称（当标题只有简称时使用）"""
     if not raw_text or len(raw_text) < 10:
         return None
@@ -284,16 +310,25 @@ def extract_full_org_name_from_text(short_name: Optional[str], raw_text: str) ->
         )
         if m:
             name = m.group(1).strip()
-            for prefix in ["申请人：", "被申请人：", "申请人:", "被申请人:",
-                           "当事人：", "当事人:", "被处分机构：", "被处分机构:"]:
+            for prefix in [
+                "申请人：",
+                "被申请人：",
+                "申请人:",
+                "被申请人:",
+                "当事人：",
+                "当事人:",
+                "被处分机构：",
+                "被处分机构:",
+            ]:
                 if name.startswith(prefix):
-                    name = name[len(prefix):].strip()
+                    name = name[len(prefix) :].strip()
             if len(name) >= 4 and re.search(r"(?:公司|企业|有限|合伙|事务所|集团)", name):
                 return name
 
     for prefix in ["申请人", "被申请人", "被处分机构", "当事人"]:
         m = re.search(
-            prefix + r"[：:]\s*([^\n,，。；;（(]+?(?:公司|企业|有限|合伙|事务所|集团)[^\n]*?)(?:[，,。\n（(]|$)",
+            prefix
+            + r"[：:]\s*([^\n,，。；;（(]+?(?:公司|企业|有限|合伙|事务所|集团)[^\n]*?)(?:[，,。\n（(]|$)",
             snippet,
         )
         if m:
@@ -317,24 +352,32 @@ def extract_full_org_name_from_text(short_name: Optional[str], raw_text: str) ->
     )
     if m:
         name = m.group(1).strip()
-        for prefix in ["申请人：", "被申请人：", "申请人:", "被申请人:",
-                       "当事人：", "当事人:", "被处分机构：", "被处分机构:"]:
+        for prefix in [
+            "申请人：",
+            "被申请人：",
+            "申请人:",
+            "被申请人:",
+            "当事人：",
+            "当事人:",
+            "被处分机构：",
+            "被处分机构:",
+        ]:
             if name.startswith(prefix):
-                name = name[len(prefix):].strip()
+                name = name[len(prefix) :].strip()
         if len(name) >= 4:
             return name
 
     return None
 
 
-def extract_org_name_from_text_llm(title: str, raw_text: str) -> Optional[str]:
+def extract_org_name_from_text_llm(title: str, raw_text: str) -> str | None:
     """使用大模型从正文提取受处分机构完整名称（降级方案）。"""
     if not raw_text or len(raw_text) < 100:
         return None
 
     prompt = (
         "请从以下纪律处分决定书文本中，提取被处分机构的完整注册名称。\n"
-        "请只输出机构完整名称，不要输出其他内容。如果文本中没有提及，请输出\"未知\"。\n\n"
+        '请只输出机构完整名称，不要输出其他内容。如果文本中没有提及，请输出"未知"。\n\n'
         "文本内容：\n" + raw_text[:2000]
     )
     try:
@@ -345,7 +388,7 @@ def extract_org_name_from_text_llm(title: str, raw_text: str) -> Optional[str]:
             return result
     except LLMError as exc:
         logger.warning("  [机构名称LLM] 提取失败: %s", exc)
-    except Exception as exc:  # noqa: BLE001 - LLM 异常不应中断抓取
+    except Exception as exc:
         logger.warning("  [机构名称LLM] 提取异常: %s", exc)
     return None
 
@@ -379,7 +422,7 @@ def resolve_org_type(
     title: str,
     raw_text: str,
     category_key: str,
-    cache: Optional[OrgTypeCache] = None,
+    cache: OrgTypeCache | None = None,
     punished_entity: str = "",
 ) -> str:
     """解析机构类型，四级降级：缓存 → 活跃API → 已注销API → 正文正则"""
@@ -423,11 +466,11 @@ class BackfillResult:
     org_type_filled: int = 0
     entity_filled: int = 0
     unresolved: int = 0
-    manual_list: List[Dict[str, Any]] = field(default_factory=list)
+    manual_list: list[dict[str, Any]] = field(default_factory=list)
     manual_list_path: str = ""
     dry_run: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "total": self.total,
             "already_have": self.already_have,
@@ -441,8 +484,8 @@ class BackfillResult:
 
 
 def iter_amac_institution_cases(
-    config: Optional[Config] = None,
-) -> Iterator[Tuple[Path, Dict[str, Any]]]:
+    config: Config | None = None,
+) -> Iterator[tuple[Path, dict[str, Any]]]:
     """遍历 AMAC 机构类案例文件，产出 ``(路径, 数据)``。"""
     cases_dir = (config or get_config()).data_root("amac_cases")
     institution_dir = cases_dir / "institution"
@@ -470,7 +513,7 @@ def extract_org_type_from_url(url: str) -> str:
             },
             timeout=15,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("  [机构类型URL] 请求失败: %s", exc)
         return ""
 
@@ -488,9 +531,9 @@ def extract_org_type_from_url(url: str) -> str:
 
 def backfill_org_types(
     dry_run: bool = False,
-    config: Optional[Config] = None,
-    limit: Optional[int] = None,
-    on_progress: Optional[Callable[[int, int, str], None]] = None,
+    config: Config | None = None,
+    limit: int | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> BackfillResult:
     """为历史 AMAC 机构类案例补齐 ``org_type`` 与 ``punished_entity``。
 
@@ -512,8 +555,9 @@ def backfill_org_types(
         items = items[:limit]
 
     result = BackfillResult(total=len(items), dry_run=dry_run)
-    logger.info("扫描到 %d 个机构类案例，开始%s",
-                result.total, "试算（dry-run）" if dry_run else "回填")
+    logger.info(
+        "扫描到 %d 个机构类案例，开始%s", result.total, "试算（dry-run）" if dry_run else "回填"
+    )
 
     for index, (path, data) in enumerate(items, 1):
         case_id = str(data.get("case_id", path.stem))
@@ -542,12 +586,14 @@ def backfill_org_types(
         else:
             result.unresolved += 1
             logger.warning("[%d/%d] %s → 无法自动获取机构类型", index, len(items), case_id)
-            result.manual_list.append({
-                "case_id": case_id,
-                "title": title,
-                "punished_entity": punished_entity,
-                "file": path.as_posix(),
-            })
+            result.manual_list.append(
+                {
+                    "case_id": case_id,
+                    "title": title,
+                    "punished_entity": punished_entity,
+                    "file": path.as_posix(),
+                }
+            )
 
         if entity_changed:
             data["punished_entity"] = punished_entity
@@ -565,15 +611,19 @@ def backfill_org_types(
             write_json(manual_path, result.manual_list)
         logger.info("需人工补全清单：%s（%d 条）", manual_path, len(result.manual_list))
 
-    logger.info("回填完成：已有 %d，补全机构类型 %d，补全机构名称 %d，未解析 %d",
-                result.already_have, result.org_type_filled,
-                result.entity_filled, result.unresolved)
+    logger.info(
+        "回填完成：已有 %d，补全机构类型 %d，补全机构名称 %d，未解析 %d",
+        result.already_have,
+        result.org_type_filled,
+        result.entity_filled,
+        result.unresolved,
+    )
     return result
 
 
 def interactive_fill(
-    config: Optional[Config] = None,
-) -> Tuple[int, int]:
+    config: Config | None = None,
+) -> tuple[int, int]:
     """交互式终端补全缺失的机构类型，返回 ``(已补全, 已跳过)``。
 
     输入规则：编号选择预置类型 | 直接输入自定义类型 | 粘贴详情页 URL 自动提取
@@ -583,9 +633,8 @@ def interactive_fill(
     cases_dir = cfg.data_root("amac_cases")
     cache = OrgTypeCache(cases_dir)
 
-    missing: List[Tuple[Path, Dict[str, Any]]] = [
-        (path, data) for path, data in iter_amac_institution_cases(cfg)
-        if not data.get("org_type")
+    missing: list[tuple[Path, dict[str, Any]]] = [
+        (path, data) for path, data in iter_amac_institution_cases(cfg) if not data.get("org_type")
     ]
     if not missing:
         print("\n所有机构类案例均已拥有 org_type，无需补全。")
@@ -646,4 +695,3 @@ def interactive_fill(
 
     print(f"\n交互式补全结束。已补全 {filled} 条，跳过 {skipped} 条。")
     return filled, skipped
-

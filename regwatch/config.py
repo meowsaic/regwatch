@@ -20,19 +20,19 @@ import re
 import threading
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .datamodels import ModelProfile
 
 __all__ = [
-    "PROJECT_ROOT",
     "CONFIG_FILENAME",
-    "DEFAULT_DATA_ROOTS",
     "DATA_ROOT_LABELS",
+    "DEFAULT_DATA_ROOTS",
+    "PROJECT_ROOT",
     "TASK_KINDS",
     "TASK_LABELS",
-    "ConfigError",
     "Config",
+    "ConfigError",
     "get_config",
     "reset_config",
 ]
@@ -46,7 +46,7 @@ CONFIG_EXAMPLE_FILENAME = "config.example.json"
 
 _ENV_PREFIX = "REGWATCH_"
 
-DEFAULT_DATA_ROOTS: Dict[str, str] = {
+DEFAULT_DATA_ROOTS: dict[str, str] = {
     "amac_cases": "AMAC/cases",
     "amac_summaries": "AMAC/summaries",
     "amac_reports": "AMAC/reports",
@@ -55,7 +55,7 @@ DEFAULT_DATA_ROOTS: Dict[str, str] = {
     "csrc_reports": "CSRC/reports",
 }
 
-DATA_ROOT_LABELS: Dict[str, str] = {
+DATA_ROOT_LABELS: dict[str, str] = {
     "amac_cases": "AMAC 案例原文",
     "amac_summaries": "AMAC 结构化摘要",
     "amac_reports": "AMAC 报告产物",
@@ -64,11 +64,11 @@ DATA_ROOT_LABELS: Dict[str, str] = {
     "csrc_reports": "CSRC 报告产物",
 }
 
-DEFAULT_CONCURRENCY: Dict[str, int] = {"fetch": 8, "summarize": 5}
+DEFAULT_CONCURRENCY: dict[str, int] = {"fetch": 8, "summarize": 5}
 
 TASK_KINDS = ("summarize", "report", "vision")
 
-TASK_LABELS: Dict[str, str] = {
+TASK_LABELS: dict[str, str] = {
     "summarize": "结构化摘要提取",
     "report": "报告合规建议撰写",
     "vision": "PDF 版式识别（视觉模型）",
@@ -84,19 +84,19 @@ class ConfigError(RuntimeError):
 # ──────────────────────────── 辅助函数 ────────────────────────────
 
 
-def _read_json(path: Path) -> Dict[str, Any]:
+def _read_json(path: Path) -> dict[str, Any]:
     """读取 JSON 文件；不存在或损坏时返回空字典。"""
     if not path.exists():
         return {}
     try:
-        with open(path, "r", encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
     except (json.JSONDecodeError, OSError):
         return {}
     return data if isinstance(data, dict) else {}
 
 
-def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """递归合并字典：``override`` 优先；字典逐层合并，列表整体替换。"""
     merged = dict(base)
     for key, value in (override or {}).items():
@@ -109,7 +109,7 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
     return merged
 
 
-def _normalize_model(raw: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_model(raw: dict[str, Any]) -> dict[str, Any]:
     """规范化单条模型配置，补齐默认值。"""
     profile = ModelProfile.from_dict(raw)
     data = profile.to_dict()
@@ -123,7 +123,7 @@ def _normalize_model(raw: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
-def _default_data() -> Dict[str, Any]:
+def _default_data() -> dict[str, Any]:
     return {
         "data_roots": dict(DEFAULT_DATA_ROOTS),
         "concurrency": dict(DEFAULT_CONCURRENCY),
@@ -142,28 +142,28 @@ class Config:
     便于 Streamlit 多线程刷新与后台任务并发读取。
     """
 
-    def __init__(self, path: Optional[Path] = None) -> None:
+    def __init__(self, path: Path | None = None) -> None:
         self.path = Path(path) if path else PROJECT_ROOT / CONFIG_FILENAME
         self._lock = threading.RLock()
-        self.data: Dict[str, Any] = self._load()
+        self.data: dict[str, Any] = self._load()
 
     # ── 载入 / 保存 ──
 
-    def _load(self) -> Dict[str, Any]:
+    def _load(self) -> dict[str, Any]:
         merged = _default_data()
         merged = _deep_merge(merged, _read_json(PROJECT_ROOT / CONFIG_EXAMPLE_FILENAME))
         merged = _deep_merge(merged, _read_json(self.path))
         models = merged.get("models")
-        merged["models"] = [
-            _normalize_model(item) for item in models if isinstance(item, dict)
-        ] if isinstance(models, list) else []
+        merged["models"] = (
+            [_normalize_model(item) for item in models if isinstance(item, dict)]
+            if isinstance(models, list)
+            else []
+        )
         tasks = merged.get("tasks")
-        merged["tasks"] = {
-            kind: str((tasks or {}).get(kind) or "") for kind in TASK_KINDS
-        }
+        merged["tasks"] = {kind: str((tasks or {}).get(kind) or "") for kind in TASK_KINDS}
         return merged
 
-    def reload(self) -> "Config":
+    def reload(self) -> Config:
         """从磁盘重新载入配置。"""
         with self._lock:
             self.data = self._load()
@@ -184,17 +184,17 @@ class Config:
             os.replace(tmp, self.path)
             return self.path
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self) -> dict[str, Any]:
         """返回配置的深拷贝，避免调用方直接改动内部状态。"""
         with self._lock:
             return json.loads(json.dumps(self.data, ensure_ascii=False))
 
     # ── 数据根目录 ──
 
-    def data_roots(self) -> Dict[str, Path]:
+    def data_roots(self) -> dict[str, Path]:
         """返回全部数据根目录的绝对路径。"""
         raw = self.data.get("data_roots") or {}
-        roots: Dict[str, Path] = {}
+        roots: dict[str, Path] = {}
         for key, default in DEFAULT_DATA_ROOTS.items():
             value = raw.get(key) or default
             roots[key] = self.resolve_path(value)
@@ -203,9 +203,7 @@ class Config:
     def data_root(self, key: str) -> Path:
         roots = self.data_roots()
         if key not in roots:
-            raise ConfigError(
-                f"未知数据根目录: {key}（可选：{'、'.join(sorted(roots))}）"
-            )
+            raise ConfigError(f"未知数据根目录: {key}（可选：{'、'.join(sorted(roots))}）")
         return roots[key]
 
     def set_data_root(self, key: str, value: str) -> None:
@@ -226,6 +224,8 @@ class Config:
     def concurrency(self, key: str, default: int = 5) -> int:
         """读取并发数，自动裁剪到合法区间 ``[1, 64]``。"""
         raw = (self.data.get("concurrency") or {}).get(key)
+        if raw is None:
+            return default
         try:
             value = int(raw)
         except (TypeError, ValueError):
@@ -234,23 +234,21 @@ class Config:
 
     def set_concurrency(self, key: str, value: int) -> None:
         with self._lock:
-            self.data.setdefault("concurrency", {})[key] = max(
-                1, min(_MAX_CONCURRENCY, int(value))
-            )
+            self.data.setdefault("concurrency", {})[key] = max(1, min(_MAX_CONCURRENCY, int(value)))
         self.save()
 
     # ── 模型条目 ──
 
-    def models(self) -> List[ModelProfile]:
+    def models(self) -> list[ModelProfile]:
         """返回全部模型配置（已应用环境变量覆盖）。"""
         with self._lock:
             raw_models = list(self.data.get("models") or [])
         return [self._apply_env_key(ModelProfile.from_dict(item)) for item in raw_models]
 
-    def model_ids(self) -> List[str]:
+    def model_ids(self) -> list[str]:
         return [profile.id for profile in self.models()]
 
-    def get_model(self, model_id: str) -> Optional[ModelProfile]:
+    def get_model(self, model_id: str) -> ModelProfile | None:
         if not model_id:
             return None
         for profile in self.models():
@@ -285,7 +283,8 @@ class Config:
         with self._lock:
             models = list(self.data.get("models") or [])
             remaining = [
-                item for item in models
+                item
+                for item in models
                 if not (isinstance(item, dict) and item.get("id") == model_id)
             ]
             removed = len(remaining) != len(models)
@@ -303,7 +302,7 @@ class Config:
     def task_model_id(self, task: str) -> str:
         return str((self.data.get("tasks") or {}).get(task) or "")
 
-    def task_models(self) -> Dict[str, str]:
+    def task_models(self) -> dict[str, str]:
         return {kind: self.task_model_id(kind) for kind in TASK_KINDS}
 
     def set_task_model(self, task: str, model_id: str) -> None:
@@ -315,10 +314,10 @@ class Config:
 
     def resolved_profile(
         self,
-        model_id: Optional[str] = None,
-        task: Optional[str] = None,
+        model_id: str | None = None,
+        task: str | None = None,
         required: bool = True,
-    ) -> Optional[ModelProfile]:
+    ) -> ModelProfile | None:
         """解析出实际要使用的模型配置。
 
         查找顺序：显式 ``model_id`` → ``task`` 绑定 → 第一条模型配置。
@@ -360,7 +359,7 @@ class Config:
 
     def _apply_env_key(self, profile: ModelProfile) -> ModelProfile:
         """环境变量中的密钥优先级高于配置文件。"""
-        candidates: List[str] = []
+        candidates: list[str] = []
         if profile.api_key_env:
             candidates.append(profile.api_key_env)
         candidates.append(self.env_key_name(profile.id))
@@ -373,11 +372,11 @@ class Config:
 
 # ──────────────────────────── 单例 ────────────────────────────
 
-_config: Optional[Config] = None
+_config: Config | None = None
 _singleton_lock = threading.Lock()
 
 
-def get_config(path: Optional[Path] = None) -> Config:
+def get_config(path: Path | None = None) -> Config:
     """返回全局配置单例（首次调用时创建）。"""
     global _config
     if _config is None:
@@ -387,7 +386,7 @@ def get_config(path: Optional[Path] = None) -> Config:
     return _config
 
 
-def reset_config(path: Optional[Path] = None) -> Config:
+def reset_config(path: Path | None = None) -> Config:
     """重建全局配置单例（配置变更或测试时使用）。"""
     global _config
     with _singleton_lock:

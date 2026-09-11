@@ -24,10 +24,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional
 
 import requests
 from bs4 import BeautifulSoup
+
+from ._html import attr_str
 
 # 模块日志器
 logger = logging.getLogger(__name__)
@@ -95,8 +96,7 @@ def _build_measure_url(path_code: str) -> str:
 # 该 channelid 通过 searchList API 返回 channelName="行政处罚"，total≈2014
 _HQ_PENALTY_CHANNELID = "28de6b87eda140cb93de4dd10d11867d"
 _HQ_PENALTY_URL = (
-    "https://www.csrc.gov.cn/csrc/c101928/common_list.shtml"
-    f"?channelid={_HQ_PENALTY_CHANNELID}"
+    f"https://www.csrc.gov.cn/csrc/c101928/common_list.shtml?channelid={_HQ_PENALTY_CHANNELID}"
 )
 
 # 上海局行政处罚 channelid（来自官网政务公开页配置）
@@ -117,7 +117,7 @@ _NEIMENGGU_PENALTY_URL = (
 
 
 # 所有 37 个证监局的完整配置清单
-BUREAUS: List[Bureau] = [
+BUREAUS: list[Bureau] = [
     Bureau(
         name_cn="证监会",
         name_en="HQ",
@@ -386,7 +386,7 @@ BUREAUS: List[Bureau] = [
 ]
 
 
-def get_bureau_by_name(name_en: str) -> Optional[Bureau]:
+def get_bureau_by_name(name_en: str) -> Bureau | None:
     """根据英文名称查找证监局配置。
 
     Args:
@@ -401,7 +401,7 @@ def get_bureau_by_name(name_en: str) -> Optional[Bureau]:
     return None
 
 
-def get_bureau_by_code(path_code: str) -> Optional[Bureau]:
+def get_bureau_by_code(path_code: str) -> Bureau | None:
     """根据路径编码查找证监局配置。
 
     Args:
@@ -418,7 +418,7 @@ def get_bureau_by_code(path_code: str) -> Optional[Bureau]:
     return None
 
 
-def discover_penalty_url(bureau: Bureau) -> Optional[str]:
+def discover_penalty_url(bureau: Bureau) -> str | None:
     """发现指定证监局的行政处罚列表页 URL。
 
     对于已知行政处罚 URL 的局（如会本部、上海局），直接返回已配置的 URL；
@@ -437,21 +437,20 @@ def discover_penalty_url(bureau: Bureau) -> Optional[str]:
     """
     # 已知 URL 直接返回
     if bureau.penalty_url:
-        logger.info("局 %s(%s) 已配置行政处罚 URL，直接返回。",
-                    bureau.name_cn, bureau.name_en)
+        logger.info("局 %s(%s) 已配置行政处罚 URL，直接返回。", bureau.name_cn, bureau.name_en)
         return bureau.penalty_url
 
     # 地方局需要 site_path 才能构造首页 URL
     if not bureau.site_path or bureau.site_path == "csrc":
-        logger.warning("局 %s(%s) 缺少 site_path，无法推断首页 URL。",
-                        bureau.name_cn, bureau.name_en)
+        logger.warning(
+            "局 %s(%s) 缺少 site_path，无法推断首页 URL。", bureau.name_cn, bureau.name_en
+        )
         return None
 
-    target_url = (
-        f"https://www.csrc.gov.cn/{bureau.site_path}/index.shtml"
+    target_url = f"https://www.csrc.gov.cn/{bureau.site_path}/index.shtml"
+    logger.info(
+        "局 %s(%s) 开始发现行政处罚 URL，访问首页：%s", bureau.name_cn, bureau.name_en, target_url
     )
-    logger.info("局 %s(%s) 开始发现行政处罚 URL，访问首页：%s",
-                bureau.name_cn, bureau.name_en, target_url)
 
     try:
         response = requests.get(
@@ -462,8 +461,7 @@ def discover_penalty_url(bureau: Bureau) -> Optional[str]:
         response.raise_for_status()
         response.encoding = response.apparent_encoding or "utf-8"
     except requests.RequestException as exc:
-        logger.error("局 %s(%s) 请求首页失败：%s",
-                     bureau.name_cn, bureau.name_en, exc)
+        logger.error("局 %s(%s) 请求首页失败：%s", bureau.name_cn, bureau.name_en, exc)
         return None
 
     soup = BeautifulSoup(response.text, "html.parser")
@@ -493,38 +491,45 @@ def discover_penalty_url(bureau: Bureau) -> Optional[str]:
         if "content.shtml" in href:
             return False
         # 栏目页通常带 channelid 查询参数
-        if "channelid=" not in href:
-            return False
-        return True
+        return "channelid=" in href
 
     # 第一优先级：text 完全等于"行政处罚"的栏目链接
     for anchor in soup.find_all("a"):
         text = anchor.get_text(strip=True)
-        href = anchor.get("href", "")
+        href = attr_str(anchor, "href")
         if text != "行政处罚":
             continue
         if not _is_local_channel_link(href):
             continue
         full_url = _resolve_url(href, target_url)
-        logger.info("局 %s(%s) 发现行政处罚栏目链接（精确匹配）：%s -> %s",
-                    bureau.name_cn, bureau.name_en, text, full_url)
+        logger.info(
+            "局 %s(%s) 发现行政处罚栏目链接（精确匹配）：%s -> %s",
+            bureau.name_cn,
+            bureau.name_en,
+            text,
+            full_url,
+        )
         return full_url
 
     # 退化：text 含"行政处罚"的栏目链接（排除详情页）
     for anchor in soup.find_all("a"):
         text = anchor.get_text(strip=True)
-        href = anchor.get("href", "")
+        href = attr_str(anchor, "href")
         if "行政处罚" not in text:
             continue
         if not _is_local_channel_link(href):
             continue
         full_url = _resolve_url(href, target_url)
-        logger.info("局 %s(%s) 发现行政处罚栏目链接（模糊匹配）：%s -> %s",
-                    bureau.name_cn, bureau.name_en, text, full_url)
+        logger.info(
+            "局 %s(%s) 发现行政处罚栏目链接（模糊匹配）：%s -> %s",
+            bureau.name_cn,
+            bureau.name_en,
+            text,
+            full_url,
+        )
         return full_url
 
-    logger.warning("局 %s(%s) 未在首页发现地方局行政处罚栏目链接。",
-                   bureau.name_cn, bureau.name_en)
+    logger.warning("局 %s(%s) 未在首页发现地方局行政处罚栏目链接。", bureau.name_cn, bureau.name_en)
     return None
 
 
@@ -545,6 +550,7 @@ def _resolve_url(href: str, base_url: str) -> str:
     if href.startswith("/"):
         # 绝对路径，拼接到站点根域名
         from urllib.parse import urlsplit
+
         parts = urlsplit(base_url)
         return f"{parts.scheme}://{parts.netloc}{href}"
     # 其他相对路径：简单拼接到 base_url 的目录

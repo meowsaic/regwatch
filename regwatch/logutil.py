@@ -15,15 +15,14 @@ import threading
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Deque, Dict, List, Optional
 
 __all__ = [
     "LOG_FORMAT",
     "TaskLogRouter",
-    "get_logger",
-    "configure_logging",
     "bind_task",
+    "configure_logging",
     "current_task_id",
+    "get_logger",
     "get_task_log_router",
 ]
 
@@ -38,12 +37,12 @@ _config_lock = threading.Lock()
 _local = threading.local()
 
 
-def bind_task(task_id: Optional[str]) -> None:
+def bind_task(task_id: str | None) -> None:
     """把当前线程绑定到指定任务 ID（传 ``None`` 解绑）。"""
     _local.task_id = task_id
 
 
-def current_task_id() -> Optional[str]:
+def current_task_id() -> str | None:
     """返回当前线程绑定的任务 ID。"""
     return getattr(_local, "task_id", None)
 
@@ -54,7 +53,7 @@ class TaskLogRouter(logging.Handler):
     def __init__(self, capacity: int = 3000) -> None:
         super().__init__()
         self.capacity = capacity
-        self._buffers: Dict[str, Deque[str]] = {}
+        self._buffers: dict[str, deque[str]] = {}
         self._lock = threading.Lock()
         self.setFormatter(logging.Formatter(LOG_FORMAT, DATE_FORMAT))
 
@@ -77,12 +76,12 @@ class TaskLogRouter(logging.Handler):
                 buffer.clear()
 
     # ── 读取 ──
-    def lines(self, task_id: str, start: int = 0) -> List[str]:
+    def lines(self, task_id: str, start: int = 0) -> list[str]:
         """返回该任务自 ``start`` 起的日志行。"""
         with self._lock:
             buffer = self._buffers.get(task_id)
             snapshot = list(buffer) if buffer is not None else []
-        return snapshot[max(0, start):]
+        return snapshot[max(0, start) :]
 
     def count(self, task_id: str) -> int:
         with self._lock:
@@ -107,7 +106,7 @@ class TaskLogRouter(logging.Handler):
                 buffer.append(line)
 
 
-_router: Optional[TaskLogRouter] = None
+_router: TaskLogRouter | None = None
 
 
 def get_task_log_router() -> TaskLogRouter:
@@ -143,7 +142,7 @@ def get_logger(name: str = "") -> logging.Logger:
 
 def configure_logging(
     level: int = logging.INFO,
-    log_file: Optional[Path] = None,
+    log_file: Path | None = None,
     force: bool = False,
 ) -> logging.Logger:
     """初始化 ``regwatch`` 日志系统（幂等）。

@@ -20,10 +20,11 @@ from __future__ import annotations
 import html as _html
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any
 
 from .analyze import AnalysisResult, analyze
 from .config import Config, get_config
@@ -38,14 +39,14 @@ from .storage import (
 
 __all__ = [
     "ReportOutput",
-    "render_markdown",
-    "render_html",
-    "markdown_to_html",
-    "generate_compliance_advice",
-    "default_compliance_advice",
     "build_report",
-    "save_report_files",
+    "default_compliance_advice",
+    "generate_compliance_advice",
     "get_last_quarter_label",
+    "markdown_to_html",
+    "render_html",
+    "render_markdown",
+    "save_report_files",
 ]
 
 logger = get_logger("report")
@@ -189,7 +190,12 @@ def _render_comparison(result: AnalysisResult) -> str:
 
 
 def _render_legal(result: AnalysisResult) -> str:
-    lines = ["## 五、法规依据分析", "", "| 排名 | 法规名称 | 引用次数 |", "|------|----------|----------|"]
+    lines = [
+        "## 五、法规依据分析",
+        "",
+        "| 排名 | 法规名称 | 引用次数 |",
+        "|------|----------|----------|",
+    ]
     for rank, (law, count) in enumerate(result.legal["ranked"], 1):
         lines.append(f"| {rank} | 《{law}》 | {count} |")
     lines.append("")
@@ -251,8 +257,12 @@ def _render_default_compliance(result: AnalysisResult) -> str:
 
 
 def _render_case_list(result: AnalysisResult) -> str:
-    lines = ["## 附件：案例列表", "", "| 序号 | 受处分对象 | 类型 | 违规类型 | 处罚措施 | 日期 |",
-             "|------|-----------|------|----------|----------|------|"]
+    lines = [
+        "## 附件：案例列表",
+        "",
+        "| 序号 | 受处分对象 | 类型 | 违规类型 | 处罚措施 | 日期 |",
+        "|------|-----------|------|----------|----------|------|",
+    ]
     rows = result.rows[:MAX_CASE_LIST_ROWS]
     for index, row in enumerate(rows, 1):
         lines.append(
@@ -270,7 +280,7 @@ def render_markdown(
     title: str,
     period_label: str,
     dataset_label: str,
-    advice: Optional[str] = None,
+    advice: str | None = None,
 ) -> str:
     """把分析结果渲染为完整 Markdown 报告。"""
     header = (
@@ -345,10 +355,10 @@ def markdown_to_html(markdown_text: str, title: str = "", meta: str = "") -> str
     支持：标题（# ~ ####）、表格、无序列表、引用、分隔线与段落。
     不追求完整 Markdown 兼容，只覆盖报告实际用到的语法。
     """
-    blocks: List[str] = []
-    table_rows: List[List[str]] = []
-    list_items: List[str] = []
-    paragraph: List[str] = []
+    blocks: list[str] = []
+    table_rows: list[list[str]] = []
+    list_items: list[str] = []
+    paragraph: list[str] = []
 
     def flush_table() -> None:
         if not table_rows:
@@ -360,15 +370,16 @@ def markdown_to_html(markdown_text: str, title: str = "", meta: str = "") -> str
             body = body[1:]
         cells = "".join(f"<th>{_inline(cell)}</th>" for cell in header)
         rows = "".join(
-            "<tr>" + "".join(f"<td>{_inline(cell)}</td>" for cell in row) + "</tr>"
-            for row in body
+            "<tr>" + "".join(f"<td>{_inline(cell)}</td>" for cell in row) + "</tr>" for row in body
         )
         blocks.append(f"<table><thead><tr>{cells}</tr></thead><tbody>{rows}</tbody></table>")
         table_rows.clear()
 
     def flush_list() -> None:
         if list_items:
-            blocks.append("<ul>" + "".join(f"<li>{_inline(item)}</li>" for item in list_items) + "</ul>")
+            blocks.append(
+                "<ul>" + "".join(f"<li>{_inline(item)}</li>" for item in list_items) + "</ul>"
+            )
             list_items.clear()
 
     def flush_paragraph() -> None:
@@ -428,12 +439,14 @@ def markdown_to_html(markdown_text: str, title: str = "", meta: str = "") -> str
     head = f"<title>{_html.escape(title)}</title>" if title else "<title>regwatch 报告</title>"
     header_html = (
         f'<header class="report"><h1>{_html.escape(title)}</h1>'
-        f'<div class="meta">{_html.escape(meta)}</div></header>' if title else ""
+        f'<div class="meta">{_html.escape(meta)}</div></header>'
+        if title
+        else ""
     )
     return (
-        "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\">"
-        f"{head}<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        f"<style>{_HTML_CSS}</style></head><body><div class=\"wrap\">"
+        '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
+        f'{head}<meta name="viewport" content="width=device-width,initial-scale=1">'
+        f'<style>{_HTML_CSS}</style></head><body><div class="wrap">'
         f"{header_html}{''.join(blocks)}"
         "<footer>本报告由 regwatch 自动生成</footer>"
         "</div></body></html>"
@@ -456,16 +469,20 @@ def default_compliance_advice(result: AnalysisResult) -> str:
 
 def generate_compliance_advice(
     result: AnalysisResult,
-    config: Optional[Config] = None,
-) -> Optional[str]:
+    config: Config | None = None,
+) -> str | None:
     """调用大模型撰写「合规建议」章节；失败返回 ``None``。"""
     basic = result.basic
     prompt = COMPLIANCE_ADVICE_PROMPT.format(
         total_cases=basic["total"],
         inst_count=basic["institution_count"],
         pers_count=basic["personnel_count"],
-        violation_dist="、".join(f"{name}({count}例)" for name, count in result.violation["ranked"][:8]),
-        punishment_dist="、".join(f"{name}({count}例)" for name, count in result.punishment["category_ranked"][:5]),
+        violation_dist="、".join(
+            f"{name}({count}例)" for name, count in result.violation["ranked"][:8]
+        ),
+        punishment_dist="、".join(
+            f"{name}({count}例)" for name, count in result.punishment["category_ranked"][:5]
+        ),
         legal_top3="、".join(f"《{law}》({count}次)" for law, count in result.legal["ranked"][:3]),
         top_violations="、".join(name for name, _ in result.violation["ranked"][:3]) or "无",
     )
@@ -475,7 +492,9 @@ def generate_compliance_advice(
             logger.info("正在调用大模型生成合规建议... (%d/3)", attempt)
             client = get_llm(task="report", config=config)
             advice = client.chat_text(
-                prompt, max_tokens=2500, temperature=0.7,
+                prompt,
+                max_tokens=2500,
+                temperature=0.7,
             ).strip()
             if len(advice) >= 100:
                 logger.info("合规建议生成完成（%d 字）", len(advice))
@@ -483,7 +502,7 @@ def generate_compliance_advice(
             logger.warning("合规建议过短（%d 字），视为失败", len(advice))
         except LLMError as exc:
             logger.warning("合规建议第 %d 次生成失败: %s", attempt, exc)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("合规建议第 %d 次异常: %s", attempt, exc)
 
     logger.error("合规建议生成失败，将回落到内置建议")
@@ -502,11 +521,11 @@ class ReportOutput:
     period_label: str = ""
     markdown: str = ""
     html: str = ""
-    stats: Dict[str, Any] = field(default_factory=dict)
-    paths: Dict[str, str] = field(default_factory=dict)
+    stats: dict[str, Any] = field(default_factory=dict)
+    paths: dict[str, str] = field(default_factory=dict)
     row_count: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "dataset": self.dataset,
             "title": self.title,
@@ -517,7 +536,7 @@ class ReportOutput:
         }
 
 
-def get_last_quarter_label(today: Optional[datetime] = None) -> str:
+def get_last_quarter_label(today: datetime | None = None) -> str:
     """返回上一个季度的展示标签，如 ``2026年Q1（2026-01-01 ~ 2026-03-31）``。"""
     now = today or datetime.now()
     year, quarter = now.year, (now.month - 1) // 3 + 1
@@ -543,14 +562,14 @@ def report_title(dataset: str) -> str:
 def save_report_files(
     output: ReportOutput,
     directory: Path,
-    stem: Optional[str] = None,
+    stem: str | None = None,
     formats: Sequence[str] = ("md", "html", "json"),
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """把报告写入磁盘，返回 ``{格式: 路径}``。"""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     stem = stem or f"{output.dataset}_报告_{datetime.now().strftime('%Y%m%d_%H%M')}"
-    written: Dict[str, str] = {}
+    written: dict[str, str] = {}
 
     if "md" in formats:
         path = directory / f"{stem}.md"
@@ -562,25 +581,23 @@ def save_report_files(
         written["html"] = str(path)
     if "json" in formats:
         path = directory / f"stats_{stem}.json"
-        path.write_text(
-            json.dumps(output.stats, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+        path.write_text(json.dumps(output.stats, ensure_ascii=False, indent=2), encoding="utf-8")
         written["json"] = str(path)
 
     output.paths = written
-    for kind, path in written.items():
-        logger.info("报告已保存 [%s]: %s", kind, path)
+    for kind, saved in written.items():
+        logger.info("报告已保存 [%s]: %s", kind, saved)
     return written
 
 
 def build_report(
     dataset: str,
-    config: Optional[Config] = None,
+    config: Config | None = None,
     start_date: str = "",
     end_date: str = "",
     use_llm: bool = False,
-    period_label: Optional[str] = None,
-    title: Optional[str] = None,
+    period_label: str | None = None,
+    title: str | None = None,
 ) -> ReportOutput:
     """对指定数据集与日期范围生成报告（不落盘）。
 
@@ -610,7 +627,8 @@ def build_report(
             overview = dataset_overview(dataset, cfg)
             period_label = (
                 f"{overview.date_min} ~ {overview.date_max}"
-                if overview.date_min and overview.date_max else "全量数据"
+                if overview.date_min and overview.date_max
+                else "全量数据"
             )
 
     dataset_label = DATASET_LABELS.get(dataset, dataset)

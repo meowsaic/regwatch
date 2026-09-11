@@ -14,7 +14,6 @@ from regwatch.llm import (
     parse_json_response,
 )
 
-
 # ──────────────────────────── 假客户端 ────────────────────────────
 
 
@@ -51,7 +50,12 @@ class FakeClient:
 
 
 def build_client(script=None, models=None, **profile_kwargs) -> tuple[LLMClient, FakeClient]:
-    defaults = dict(id="t", base_url="https://example.invalid/v1", api_key="sk-test-1234567890", model="fake-model")
+    defaults = dict(
+        id="t",
+        base_url="https://example.invalid/v1",
+        api_key="sk-test-1234567890",
+        model="fake-model",
+    )
     defaults.update(profile_kwargs)
     profile = ModelProfile(**defaults)
     client = LLMClient(profile, backoff=0.01, max_retries=2)
@@ -110,8 +114,12 @@ class ChatResultTests(unittest.TestCase):
 
     def test_usage_from_raw(self):
         self.assertEqual(Usage.from_raw(None), Usage())
-        usage = Usage.from_raw(SimpleNamespace(prompt_tokens=5, completion_tokens=6, total_tokens=11))
-        self.assertEqual((usage.prompt_tokens, usage.completion_tokens, usage.total_tokens), (5, 6, 11))
+        usage = Usage.from_raw(
+            SimpleNamespace(prompt_tokens=5, completion_tokens=6, total_tokens=11)
+        )
+        self.assertEqual(
+            (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens), (5, 6, 11)
+        )
 
 
 class ChatCallTests(unittest.TestCase):
@@ -175,7 +183,9 @@ class DegradeTests(unittest.TestCase):
 
     def test_strip_custom_extra_param(self):
         error = ValueError("Extra inputs are not permitted: thinking")
-        client, fake = build_client(script=[error, make_response("ok")], extra={"thinking": {"type": "disabled"}})
+        client, fake = build_client(
+            script=[error, make_response("ok")], extra={"thinking": {"type": "disabled"}}
+        )
         client.chat([{"role": "user", "content": "hi"}])
         self.assertIn("thinking", fake.calls[0])
         self.assertNotIn("thinking", fake.calls[1])
@@ -237,8 +247,7 @@ class ConnectionTests(unittest.TestCase):
         self.assertIn("响应正常", message)
 
     def test_failure_reported(self):
-        client, _ = build_client(script=[ValueError("bad api key")] * 4,
-                                models=ValueError("nope"))
+        client, _ = build_client(script=[ValueError("bad api key")] * 4, models=ValueError("nope"))
         ok, message = client.test_connection()
         self.assertFalse(ok)
         self.assertIn("bad api key", message)
@@ -254,12 +263,17 @@ class ProfileTests(unittest.TestCase):
         )
 
     def test_missing_fields(self):
-        self.assertEqual(ModelProfile(id="").missing_fields(), ["配置标识", "接口地址 base_url", "文本模型 model"])
+        self.assertEqual(
+            ModelProfile(id="").missing_fields(),
+            ["配置标识", "接口地址 base_url", "文本模型 model"],
+        )
         self.assertEqual(ModelProfile(id="a", base_url="u", model="m").missing_fields(), [])
 
     def test_vision_model_falls_back(self):
         self.assertEqual(ModelProfile(id="a", model="m").resolved_vision_model(), "m")
-        self.assertEqual(ModelProfile(id="a", model="m", vision_model="v").resolved_vision_model(), "v")
+        self.assertEqual(
+            ModelProfile(id="a", model="m", vision_model="v").resolved_vision_model(), "v"
+        )
 
 
 if __name__ == "__main__":

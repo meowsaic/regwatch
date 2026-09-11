@@ -23,7 +23,8 @@ regwatch/                核心包
 ├── cli.py               统一命令行（typer）
 └── sources/             采集子包：amac.py / csrc.py / amac_monthly.py / csrc_bureaus.py
 web/                     Streamlit 网页端（app.py + views/ 五页 + components/）
-tests/                   纯本地单元测试（146 项）+ AppTest 网页冒烟测试
+tests/                   纯本地单元测试 + AppTest 网页冒烟测试
+pyproject.toml           打包与工具链（uv / ruff / mypy）；权威依赖声明
 AMAC/*.py、CSRC/*.py      旧脚本已改为「薄封装」，仅转发到 regwatch 包
 ```
 
@@ -153,10 +154,15 @@ CSRC：`raw_text`/`is_fund_related`/`fund_evidence`/`document_number`/`punished_
 ## 6. 测试与验证
 
 ```powershell
-python -m unittest discover -s tests -t .        # 146 项，全部本地、不发网络请求
-$env:REGWATCH_LIVE_TEST = "1"; python -m unittest tests.test_live -v   # 可选实网测试
+uv sync --extra web --extra dev                   # 推荐安装方式
+uv run python -m unittest discover -s tests -t .  # 全量单测，全部本地、不发网络请求
+uv run ruff check regwatch tests                  # lint
+uv run mypy regwatch                              # 类型检查（核心包）
+$env:REGWATCH_LIVE_TEST = "1"; uv run python -m unittest tests.test_live -v   # 可选实网测试
 ```
 
 测试覆盖：配置读写、模型客户端（假客户端 + 参数降级）、数据层路径与索引、
 37 局配置、采集纯函数、机构类型解析、摘要流程（成功/跳过/失败）、任务编排（取消/互斥/进度）、
 统计与报告渲染、网页五页面 AppTest 渲染。
+
+改代码前后的最低验收：上述 unittest 全绿 + `ruff check` 通过。

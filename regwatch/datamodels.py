@@ -14,17 +14,17 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, fields
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from enum import StrEnum
+from typing import Any
 
 __all__ = [
-    "ModelProfile",
     "AmacCase",
     "AmacSummary",
     "CsrcCase",
     "CsrcSummary",
-    "TaskStatus",
+    "ModelProfile",
     "TaskRecord",
+    "TaskStatus",
 ]
 
 
@@ -41,9 +41,9 @@ class _Record:
     """JSON 记录基类：提供容错的 ``from_dict`` 与 ``to_dict``。"""
 
     @classmethod
-    def from_dict(cls, data: Optional[Dict[str, Any]]):
+    def from_dict(cls, data: dict[str, Any] | None):
         field_map = {f.name: f for f in fields(cls)}  # type: ignore[arg-type]
-        kwargs: Dict[str, Any] = {}
+        kwargs: dict[str, Any] = {}
         for key, value in (data or {}).items():
             spec = field_map.get(key)
             if spec is None:
@@ -53,7 +53,7 @@ class _Record:
             kwargs[key] = value
         return cls(**kwargs)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return asdict(self)  # type: ignore[call-overload]
 
 
@@ -89,7 +89,7 @@ class ModelProfile(_Record):
     vision_model: str = ""
     vision_content_type: str = "image_url"
     token_param: str = "max_tokens"
-    extra: Dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict)
     note: str = ""
 
     @property
@@ -108,9 +108,9 @@ class ModelProfile(_Record):
             return "****"
         return f"{key[:4]}****{key[-4:]}"
 
-    def missing_fields(self) -> List[str]:
+    def missing_fields(self) -> list[str]:
         """返回缺失的必填项中文名，供界面校验提示。"""
-        missing: List[str] = []
+        missing: list[str] = []
         if not (self.id or "").strip():
             missing.append("配置标识")
         if not (self.base_url or "").strip():
@@ -129,8 +129,8 @@ class AmacCase(_Record):
 
     case_id: str = ""
     source_url: str = ""
-    source_type: str = ""          # html / pdf_direct / pdf_embedded
-    category: str = ""             # scfjg(机构) / scfry(人员)
+    source_type: str = ""  # html / pdf_direct / pdf_embedded
+    category: str = ""  # scfjg(机构) / scfry(人员)
     title: str = ""
     date: str = ""
     raw_text: str = ""
@@ -161,9 +161,9 @@ class AmacSummary(_Record):
     title: str = ""
     date: str = ""
     punished_entity: str = ""
-    entity_type: str = ""          # 机构 / 个人
+    entity_type: str = ""  # 机构 / 个人
     org_type: str = ""
-    violation_type: str = ""       # 多值以顿号分隔
+    violation_type: str = ""  # 多值以顿号分隔
     punishment: str = ""
     punishment_date: str = ""
     involved_fund: str = ""
@@ -183,8 +183,8 @@ class CsrcCase(_Record):
 
     case_id: str = ""
     source_url: str = ""
-    case_type: str = ""            # penalty(行政处罚) / measure(监管措施)
-    bureau: str = ""               # HQ / Beijing / ...
+    case_type: str = ""  # penalty(行政处罚) / measure(监管措施)
+    bureau: str = ""  # HQ / Beijing / ...
     title: str = ""
     date: str = ""
     raw_text: str = ""
@@ -238,7 +238,7 @@ class CsrcSummary(_Record):
 # ──────────────────────────── 任务状态机 ────────────────────────────
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """后台任务状态。"""
 
     PENDING = "pending"
@@ -267,18 +267,18 @@ class TaskRecord:
     """一个后台任务的完整状态快照。"""
 
     id: str
-    kind: str                      # fetch_amac / fetch_csrc / summarize / report / org_type
+    kind: str  # fetch_amac / fetch_csrc / summarize / report / org_type
     title: str = ""
     status: TaskStatus = TaskStatus.PENDING
     created_at: str = ""
     started_at: str = ""
     finished_at: str = ""
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: dict[str, Any] = field(default_factory=dict)
     processed: int = 0
     total: int = 0
     message: str = ""
     error: str = ""
-    result: Dict[str, Any] = field(default_factory=dict)
+    result: dict[str, Any] = field(default_factory=dict)
 
     @property
     def progress(self) -> float:
@@ -289,9 +289,9 @@ class TaskRecord:
 
     @property
     def progress_percent(self) -> int:
-        return int(round(self.progress * 100))
+        return round(self.progress * 100)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
         data["status"] = self.status.value
         data["progress"] = self.progress
@@ -299,7 +299,7 @@ class TaskRecord:
         return data
 
     @classmethod
-    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "TaskRecord":
+    def from_dict(cls, data: dict[str, Any] | None) -> TaskRecord:
         raw = dict(data or {})
         status = raw.get("status", TaskStatus.PENDING.value)
         try:

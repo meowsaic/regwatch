@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Any
 
 import pandas as pd
 import plotly.express as px
@@ -10,20 +11,32 @@ import plotly.graph_objects as go
 
 __all__ = [
     "PALETTE",
-    "style",
     "bar",
-    "hbar",
     "donut",
-    "trend",
     "grouped_bar",
+    "hbar",
     "heat_by_month",
+    "style",
+    "trend",
 ]
 
 #: 品牌色板（深蓝 → 天蓝 → 琥珀，附少量区分度高的补充色）
-PALETTE: List[str] = [
-    "#354e92", "#2563EB", "#0EA5E9", "#F59E0B", "#16A34A",
-    "#8B5CF6", "#EF4444", "#0F766E", "#DB2777", "#CA8A04",
-    "#475569", "#22D3EE", "#A3E635", "#FB923C", "#6366F1",
+PALETTE: list[str] = [
+    "#354e92",
+    "#2563EB",
+    "#0EA5E9",
+    "#F59E0B",
+    "#16A34A",
+    "#8B5CF6",
+    "#EF4444",
+    "#0F766E",
+    "#DB2777",
+    "#CA8A04",
+    "#475569",
+    "#22D3EE",
+    "#A3E635",
+    "#FB923C",
+    "#6366F1",
 ]
 
 _FONT = "'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif"
@@ -41,7 +54,7 @@ def style(
     ``title`` 为空时**不写入** title 布局对象——空的 title 对象会被
     Plotly 渲染成字面量 "undefined"。
     """
-    layout: Dict[str, Any] = {
+    layout: dict[str, Any] = {
         "height": height,
         "margin": {"l": margin, "r": 18, "t": 34, "b": margin},
         "paper_bgcolor": "rgba(0,0,0,0)",
@@ -49,8 +62,12 @@ def style(
         "font": {"family": _FONT, "size": 12.5, "color": "#475569"},
         "showlegend": legend,
         "legend": {
-            "orientation": "h", "yanchor": "bottom", "y": 1.0,
-            "xanchor": "right", "x": 1.0, "bgcolor": "rgba(0,0,0,0)",
+            "orientation": "h",
+            "yanchor": "bottom",
+            "y": 1.0,
+            "xanchor": "right",
+            "x": 1.0,
+            "bgcolor": "rgba(0,0,0,0)",
         },
         "hoverlabel": {"bgcolor": "#0F172A", "font": {"color": "#F8FAFC", "family": _FONT}},
         "transition": {"duration": 380, "easing": "cubic-in-out"},
@@ -59,15 +76,20 @@ def style(
         layout["title"] = {
             "text": str(title),
             "font": {"size": 15, "color": "#354e92"},
-            "x": 0.01, "xanchor": "left",
+            "x": 0.01,
+            "xanchor": "left",
         }
     fig.update_layout(layout)
     fig.update_xaxes(
-        gridcolor="#EEF2F9", zerolinecolor="#E2E8F0", linecolor="#E2E8F0",
+        gridcolor="#EEF2F9",
+        zerolinecolor="#E2E8F0",
+        linecolor="#E2E8F0",
         automargin="bottom",
     )
     fig.update_yaxes(
-        gridcolor="#EEF2F9", zerolinecolor="#E2E8F0", linecolor="#E2E8F0",
+        gridcolor="#EEF2F9",
+        zerolinecolor="#E2E8F0",
+        linecolor="#E2E8F0",
         automargin="left",
     )
     return fig
@@ -83,8 +105,12 @@ def bar(
     """柱状图。"""
     fig = go.Figure(
         go.Bar(
-            x=list(labels), y=list(values), marker_color=color, name="案例数",
-            marker_line_width=0, hovertemplate="%{x}<br>%{y} 例<extra></extra>",
+            x=list(labels),
+            y=list(values),
+            marker_color=color,
+            name="案例数",
+            marker_line_width=0,
+            hovertemplate="%{x}<br>%{y} 例<extra></extra>",
         )
     )
     return _with_title(fig, title, height, legend=False)
@@ -103,8 +129,12 @@ def hbar(
     """
     fig = go.Figure(
         go.Bar(
-            y=list(labels), x=list(values), orientation="h",
-            marker_color=color, marker_line_width=0, name="案例数",
+            y=list(labels),
+            x=list(values),
+            orientation="h",
+            marker_color=color,
+            marker_line_width=0,
+            name="案例数",
             hovertemplate="%{y}<br>%{x} 例<extra></extra>",
         )
     )
@@ -117,15 +147,19 @@ def donut(
     values: Sequence[int],
     title: str = "",
     height: int = 340,
-    colors: Optional[Sequence[str]] = None,
+    colors: Sequence[str] | None = None,
 ) -> go.Figure:
     """环形图（用于构成占比）。"""
     palette = list(colors or PALETTE)
     fig = go.Figure(
         go.Pie(
-            labels=list(labels), values=list(values), hole=0.58,
+            labels=list(labels),
+            values=list(values),
+            hole=0.58,
             marker={"colors": palette, "line": {"color": "#FFFFFF", "width": 2}},
-            textinfo="percent", textposition="inside", insidetextorientation="horizontal",
+            textinfo="percent",
+            textposition="inside",
+            insidetextorientation="horizontal",
             textfont={"size": 12.5, "color": "#FFFFFF"},
             hovertemplate="%{label}<br>%{value} 例（%{percent}）<extra></extra>",
         )
@@ -139,15 +173,19 @@ def trend(
     title: str = "",
     height: int = 320,
     name: str = "案例数",
-    secondary: Optional[Dict[str, Sequence[int]]] = None,
+    secondary: dict[str, Sequence[int]] | None = None,
 ) -> go.Figure:
     """时间趋势（支持叠加机构/人员两条曲线）。"""
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
-            x=list(periods), y=list(values), mode="lines+markers", name=name,
+            x=list(periods),
+            y=list(values),
+            mode="lines+markers",
+            name=name,
             line={"color": "#2563EB", "width": 3, "shape": "spline", "smoothing": 0.4},
-            fill="tozeroy", fillcolor="rgba(37,99,235,.10)",
+            fill="tozeroy",
+            fillcolor="rgba(37,99,235,.10)",
             hovertemplate="%{x}<br>%{y} 例<extra></extra>",
         )
     )
@@ -155,7 +193,10 @@ def trend(
         for label, series in secondary.items():
             fig.add_trace(
                 go.Scatter(
-                    x=list(periods), y=list(series), mode="lines+markers", name=label,
+                    x=list(periods),
+                    y=list(series),
+                    mode="lines+markers",
+                    name=label,
                     line={"width": 2, "shape": "spline", "smoothing": 0.4},
                     hovertemplate="%{x}<br>%{y} 例<extra></extra>",
                 )
@@ -166,7 +207,7 @@ def trend(
 
 def grouped_bar(
     categories: Sequence[str],
-    series: Dict[str, Sequence[int]],
+    series: dict[str, Sequence[int]],
     title: str = "",
     height: int = 360,
 ) -> go.Figure:
@@ -176,14 +217,17 @@ def grouped_bar(
         frame[name] = list(values)
     fig = px.bar(
         frame.melt(id_vars="category", var_name="主体类型", value_name="案例数"),
-        x="category", y="案例数", color="主体类型", barmode="group",
+        x="category",
+        y="案例数",
+        color="主体类型",
+        barmode="group",
         color_discrete_map={"机构": "#2563EB", "个人": "#F59E0B"},
     )
     fig.update_traces(hovertemplate="%{x}<br>%{legendgroup}：%{y} 例<extra></extra>")
     return _with_title(fig, title, height)
 
 
-def heat_by_month(rows: Iterable[Dict[str, Any]], title: str = "", height: int = 320) -> go.Figure:
+def heat_by_month(rows: Iterable[dict[str, Any]], title: str = "", height: int = 320) -> go.Figure:
     """按年 × 月的热力图，展示处分密度的时序分布。"""
     frame = pd.DataFrame([item for item in rows if item.get("date")])
     if frame.empty or "date" not in frame.columns:
@@ -199,10 +243,13 @@ def heat_by_month(rows: Iterable[Dict[str, Any]], title: str = "", height: int =
     matrix = matrix.reindex(columns=[f"{m:02d}" for m in range(1, 13)])
     fig = go.Figure(
         go.Heatmap(
-            z=matrix.values, x=[f"{int(m)}月" for m in matrix.columns], y=list(matrix.index),
+            z=matrix.values,
+            x=[f"{int(m)}月" for m in matrix.columns],
+            y=list(matrix.index),
             colorscale=[[0, "#F8FAFF"], [0.35, "#BFDBFE"], [0.7, "#2563EB"], [1, "#354e92"]],
             hovertemplate="%{y}年 %{x}<br>%{z} 例<extra></extra>",
-            xgap=2, ygap=2,
+            xgap=2,
+            ygap=2,
         )
     )
     return _with_title(fig, title, height, legend=False)

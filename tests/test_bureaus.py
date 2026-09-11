@@ -10,13 +10,13 @@ from __future__ import annotations
 import unittest
 
 from regwatch.sources import csrc_bureaus
+from regwatch.sources.csrc import CaseData
 from regwatch.sources.csrc_bureaus import (
     BUREAUS,
     discover_penalty_url,
     get_bureau_by_code,
     get_bureau_by_name,
 )
-from regwatch.sources.csrc import CaseData
 
 EXPECTED_BUREAU_COUNT = 37
 
@@ -86,22 +86,46 @@ class BureausConfigTests(unittest.TestCase):
             self.assertTrue(item.site_path)
 
     def test_module_exports(self):
-        for name in ("Bureau", "BUREAUS", "discover_penalty_url",
-                     "get_bureau_by_name", "get_bureau_by_code"):
+        for name in (
+            "Bureau",
+            "BUREAUS",
+            "discover_penalty_url",
+            "get_bureau_by_name",
+            "get_bureau_by_code",
+        ):
             self.assertTrue(hasattr(csrc_bureaus, name), f"缺少导出符号 {name}")
 
 
 class CsrcCaseDataTests(unittest.TestCase):
     def test_field_set_is_stable(self):
         expected = {
-            "case_id", "source_url", "case_type", "bureau", "title", "date",
-            "raw_text", "fetch_time", "error", "is_fund_related", "fund_evidence",
-            "document_number", "punished_entities", "pdf_url", "doc_url",
+            "case_id",
+            "source_url",
+            "case_type",
+            "bureau",
+            "title",
+            "date",
+            "raw_text",
+            "fetch_time",
+            "error",
+            "is_fund_related",
+            "fund_evidence",
+            "document_number",
+            "punished_entities",
+            "pdf_url",
+            "doc_url",
         }
         self.assertEqual(set(CaseData.__dataclass_fields__), expected)
 
     def test_defaults(self):
-        case = CaseData(case_id="x", source_url="u", case_type="measure", bureau="HQ", title="t", date="2025-01-01")
+        case = CaseData(
+            case_id="x",
+            source_url="u",
+            case_type="measure",
+            bureau="HQ",
+            title="t",
+            date="2025-01-01",
+        )
         self.assertEqual(case.raw_text, "")
         self.assertFalse(case.is_fund_related)
 

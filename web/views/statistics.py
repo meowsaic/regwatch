@@ -8,7 +8,6 @@ from __future__ import annotations
 import datetime as dt
 import sys
 from pathlib import Path
-from typing import Optional
 
 import streamlit as st
 
@@ -17,9 +16,10 @@ for _path in (str(_HERE.parents[2]), str(_HERE.parents[1])):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from components import charts, ui  # noqa: E402
-from components.data import filter_case_dicts, load_rows, load_stats  # noqa: E402
-from regwatch.storage import DATASETS, DATASET_LABELS  # noqa: E402
+from regwatch.storage import DATASET_LABELS, DATASETS
+
+from components import charts, ui
+from components.data import filter_case_dicts, load_rows, load_stats
 
 ui.apply_theme()
 
@@ -31,15 +31,17 @@ TITLE_HTML = (
 st.markdown(TITLE_HTML, unsafe_allow_html=True)
 
 selection = st.multiselect(
-    "统计范围（数据集）", list(DATASETS),
-    format_func=DATASET_LABELS.get, default=list(DATASETS),
+    "统计范围（数据集）",
+    list(DATASETS),
+    format_func=DATASET_LABELS.get,
+    default=list(DATASETS),
 )
 selection = selection or list(DATASETS)
 
 rows_meta = load_rows(selection)
 
 
-def _parse_date(raw: object) -> Optional[dt.date]:
+def _parse_date(raw: object) -> dt.date | None:
     try:
         return dt.date.fromisoformat(str(raw or "")[:10])
     except ValueError:
@@ -50,7 +52,7 @@ def _shift_years(value: dt.date, years: int) -> dt.date:
     """往前/后推 N 年；2 月 29 日自动回落到 2 月 28 日。"""
     try:
         return value.replace(year=value.year + years)
-    except ValueError:  # noqa: TRY002 - 闰日场景
+    except ValueError:
         return value.replace(year=value.year + years, day=28)
 
 
@@ -76,8 +78,11 @@ def _apply_quick_range() -> None:
 quick_col, range_col = st.columns([2, 3], gap="large")
 with quick_col:
     st.pills(
-        "快捷区间", list(QUICK_RANGES), key="stat_quick",
-        default="全部", on_change=_apply_quick_range,
+        "快捷区间",
+        list(QUICK_RANGES),
+        key="stat_quick",
+        default="全部",
+        on_change=_apply_quick_range,
     )
 with range_col:
     # 切换数据集后，把会话中残留的区间钳制到新范围内，避免越界
@@ -89,8 +94,11 @@ with range_col:
     elif isinstance(prev_range, dt.date):
         st.session_state["stat_range"] = min(max(prev_range, min_date), max_date)
     range_value = st.date_input(
-        "自定义区间", key="stat_range",
-        value=(min_date, max_date), min_value=min_date, max_value=max_date,
+        "自定义区间",
+        key="stat_range",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date,
     )
 
 if isinstance(range_value, (tuple, list)) and range_value:
@@ -107,18 +115,13 @@ total = int(basic.get("total") or 0)
 full_total = len(rows_meta)
 
 if not total:
-    ui.empty_state(
-        "所选范围与区间内暂无案例", "请调整数据集或统计区间，或先运行抓取与摘要任务"
-    )
+    ui.empty_state("所选范围与区间内暂无案例", "请调整数据集或统计区间，或先运行抓取与摘要任务")
     st.stop()
 
 scope = f"{total:,} 例案例（{date_from} ~ {date_to}）"
 if total != full_total:
     scope += f"，已按区间筛选自全量 {full_total:,} 例"
-st.caption(
-    f"统计口径：{scope}；违规类型按顿号/分号拆分后归一到分类体系，"
-    "同一案例可计入多个类型。"
-)
+st.caption(f"统计口径：{scope}；违规类型按顿号/分号拆分后归一到分类体系，同一案例可计入多个类型。")
 
 tab1, tab2, tab3, tab4 = st.tabs(["违规类型", "处罚措施", "机构与个人", "法规与趋势"])
 
@@ -135,7 +138,8 @@ with tab1:
                 charts.hbar(
                     [item["type"] for item in top],
                     [item["count"] for item in top],
-                    title="违规类型分布（TOP 15）", height=520,
+                    title="违规类型分布（TOP 15）",
+                    height=520,
                 ),
                 width="stretch",
             )
@@ -147,7 +151,7 @@ with tab1:
                 st.markdown(
                     f'<div style="display:flex;justify-content:space-between;'
                     f'padding:3px 0;border-bottom:1px solid #EEF2F9;font-size:13px">'
-                    f'<span>{index}. {item["type"]}</span>'
+                    f"<span>{index}. {item['type']}</span>"
                     f'<span style="color:#2563EB;font-weight:600">{item["count"]} 例'
                     f' <span style="color:#94A3B8;font-weight:400">({percent:.1f}%)</span>'
                     f"</span></div>",
@@ -161,11 +165,13 @@ with tab1:
         for case in typical[:2]:
             st.markdown(
                 '<div class="rw-panel" style="padding:10px 14px">'
-                + ui.badges([
-                    (str(case.get("entity_display") or ""), "primary"),
-                    (str(case.get("date") or ""), "muted"),
-                ])
-                + f'<div style="font-size:13px;color:#475569;margin-top:6px">'
+                + ui.badges(
+                    [
+                        (str(case.get("entity_display") or ""), "primary"),
+                        (str(case.get("date") or ""), "muted"),
+                    ]
+                )
+                + '<div style="font-size:13px;color:#475569;margin-top:6px">'
                 + f"{case.get('violation_summary') or '（无摘要）'}</div></div>",
                 unsafe_allow_html=True,
             )
@@ -181,7 +187,8 @@ with tab2:
                 charts.donut(
                     [item["category"] for item in categories[:8]],
                     [item["count"] for item in categories[:8]],
-                    title="处罚类别构成", height=360,
+                    title="处罚类别构成",
+                    height=360,
                 ),
                 width="stretch",
             )
@@ -193,7 +200,9 @@ with tab2:
                 charts.hbar(
                     [item["punishment"] for item in details[:12]],
                     [item["count"] for item in details[:12]],
-                    title="具体处罚措施（TOP 12）", height=360, color="#F59E0B",
+                    title="具体处罚措施（TOP 12）",
+                    height=360,
+                    color="#F59E0B",
                 ),
                 width="stretch",
             )
@@ -208,14 +217,20 @@ with tab3:
     if not inst and not pers:
         ui.empty_state("暂无对比数据")
     else:
-        names = sorted(set(inst) | set(pers),
-                       key=lambda name: inst.get(name, 0) + pers.get(name, 0), reverse=True)[:12]
+        names = sorted(
+            set(inst) | set(pers),
+            key=lambda name: inst.get(name, 0) + pers.get(name, 0),
+            reverse=True,
+        )[:12]
         st.plotly_chart(
             charts.grouped_bar(
                 names,
-                {"机构": [inst.get(name, 0) for name in names],
-                 "个人": [pers.get(name, 0) for name in names]},
-                title="机构 vs 个人：违规类型对比（TOP 12）", height=400,
+                {
+                    "机构": [inst.get(name, 0) for name in names],
+                    "个人": [pers.get(name, 0) for name in names],
+                },
+                title="机构 vs 个人：违规类型对比（TOP 12）",
+                height=400,
             ),
             width="stretch",
         )
@@ -239,7 +254,9 @@ with tab4:
                 charts.hbar(
                     [item["law"] for item in legal_top[:12]],
                     [item["count"] for item in legal_top[:12]],
-                    title="法规引用 TOP 12", height=420, color="#0EA5E9",
+                    title="法规引用 TOP 12",
+                    height=420,
+                    color="#0EA5E9",
                 ),
                 width="stretch",
             )
@@ -264,7 +281,8 @@ with tab4:
             st.plotly_chart(
                 charts.heat_by_month(
                     filter_case_dicts(rows_meta, date_from=date_from, date_to=date_to),
-                    title="年度 × 月处分密度", height=260,
+                    title="年度 × 月处分密度",
+                    height=260,
                 ),
                 width="stretch",
             )
@@ -278,7 +296,8 @@ with tab4:
             charts.bar(
                 [item[0] for item in bureau_top],
                 [item[1] for item in bureau_top],
-                height=280, color="#354e92",
+                height=280,
+                color="#354e92",
             ),
             width="stretch",
         )

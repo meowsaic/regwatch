@@ -16,15 +16,16 @@ for _path in (str(_HERE.parents[2]), str(_HERE.parents[1])):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from components import ui  # noqa: E402
-from regwatch.config import (  # noqa: E402
+from regwatch.config import (
     TASK_KINDS,
     TASK_LABELS,
     ConfigError,
     get_config,
 )
-from regwatch.datamodels import ModelProfile  # noqa: E402
-from regwatch.llm import reset_clients, test_profile  # noqa: E402
+from regwatch.datamodels import ModelProfile
+from regwatch.llm import reset_clients, test_profile
+
+from components import ui
 
 ui.apply_theme()
 
@@ -32,8 +33,16 @@ config = get_config()
 
 # 表单控件 key 清单，编辑/取消/保存后统一清理，避免残留旧值
 _FORM_KEYS = (
-    "mf_id", "mf_label", "mf_url", "mf_key", "mf_env",
-    "mf_model", "mf_vision", "mf_vct", "mf_token", "mf_extra",
+    "mf_id",
+    "mf_label",
+    "mf_url",
+    "mf_key",
+    "mf_env",
+    "mf_model",
+    "mf_vision",
+    "mf_vct",
+    "mf_token",
+    "mf_extra",
 )
 
 
@@ -67,7 +76,8 @@ editing_id = st.session_state.get("editing_model")
 if not profiles:
     ui.callout(
         "尚未配置任何模型。请在下方填写接口地址、API Key 与模型名称后保存，"
-        "或复制 config.example.json 为 config.json 后填写。", tone="amber",
+        "或复制 config.example.json 为 config.json 后填写。",
+        tone="amber",
     )
 else:
     for profile in profiles:
@@ -112,7 +122,8 @@ if confirm_id:
     hint = (
         f"模型 **{confirm_id}** 的任务绑定（{'、'.join(bound_kinds)}）将一并清除，"
         "相关任务回落为使用第一个模型。"
-        if bound_kinds else f"确认删除模型 **{confirm_id}**？"
+        if bound_kinds
+        else f"确认删除模型 **{confirm_id}**？"
     )
     st.warning(f"⚠ {hint}", icon=None)
     col_ok, col_cancel, _ = st.columns([1, 1, 2])
@@ -136,9 +147,7 @@ editing_profile = config.get_model(editing_id) if editing_id else None
 
 form_head, form_cancel = st.columns([3, 1])
 with form_head:
-    st.markdown(
-        f"##### {'编辑模型：' + editing_profile.id if editing_profile else '新增模型'}"
-    )
+    st.markdown(f"##### {'编辑模型：' + editing_profile.id if editing_profile else '新增模型'}")
 with form_cancel:
     if editing_profile and st.button("取消编辑", key="cancel_edit", width="stretch"):
         _clear_model_form()
@@ -148,42 +157,61 @@ with st.form("model_form", border=False):
     col1, col2 = st.columns(2, gap="small")
     with col1:
         mid = st.text_input(
-            "配置标识 *", placeholder="deepseek", key="mf_id",
-            disabled=bool(editing_profile), help="唯一 ID，任务绑定用；编辑时不可修改",
+            "配置标识 *",
+            placeholder="deepseek",
+            key="mf_id",
+            disabled=bool(editing_profile),
+            help="唯一 ID，任务绑定用；编辑时不可修改",
         )
         mlabel = st.text_input("展示名称", placeholder="DeepSeek 通用", key="mf_label")
         murl = st.text_input(
-            "接口地址 base_url *", placeholder="https://api.deepseek.com", key="mf_url",
+            "接口地址 base_url *",
+            placeholder="https://api.deepseek.com",
+            key="mf_url",
             help="兼容 OpenAI 的接口根地址，DeepSeek 也可写 https://api.deepseek.com/v1",
         )
         mkey = st.text_input(
-            "API Key", type="password", key="mf_key",
+            "API Key",
+            type="password",
+            key="mf_key",
             help="留空则使用下方环境变量或 REGWATCH_API_KEY_<ID大写>",
         )
         menv = st.text_input(
-            "API Key 环境变量名（可选）", placeholder="DEEPSEEK_API_KEY", key="mf_env",
+            "API Key 环境变量名（可选）",
+            placeholder="DEEPSEEK_API_KEY",
+            key="mf_env",
             help="设置后优先于上方密钥读取环境变量",
         )
     with col2:
         mmodel = st.text_input("文本模型 model *", placeholder="deepseek-chat", key="mf_model")
         mvision = st.text_input(
-            "视觉模型（可选）", placeholder="留空则回落到文本模型", key="mf_vision",
+            "视觉模型（可选）",
+            placeholder="留空则回落到文本模型",
+            key="mf_vision",
         )
         mvct = st.selectbox(
-            "视觉消息类型", ["image_url", "file_url"], key="mf_vct",
+            "视觉消息类型",
+            ["image_url", "file_url"],
+            key="mf_vct",
             help="图片/通用端点用 image_url；智谱等端点传 PDF 需选 file_url。"
-                 "选错时程序会自动互换重试，但直选正确值可省一次失败请求",
+            "选错时程序会自动互换重试，但直选正确值可省一次失败请求",
         )
         mtoken = st.selectbox(
-            "token 参数字段", ["max_tokens", "max_completion_tokens"], key="mf_token",
+            "token 参数字段",
+            ["max_tokens", "max_completion_tokens"],
+            key="mf_token",
             help="少数端点（如 MiMo）要求 max_completion_tokens",
         )
         mextra = st.text_input(
-            "附加参数（可选，JSON）", placeholder='{"thinking": {"type": "disabled"}}', key="mf_extra",
-            help="透传给 chat.completions.create 的额外参数，如 {\"thinking\": {\"type\": \"enabled\"}}",
+            "附加参数（可选，JSON）",
+            placeholder='{"thinking": {"type": "disabled"}}',
+            key="mf_extra",
+            help='透传给 chat.completions.create 的额外参数，如 {"thinking": {"type": "enabled"}}',
         )
     submitted = st.form_submit_button(
-        "保存修改" if editing_profile else "保存模型配置", type="primary", width="stretch",
+        "保存修改" if editing_profile else "保存模型配置",
+        type="primary",
+        width="stretch",
     )
     if submitted:
         extra: dict = {}
@@ -193,17 +221,23 @@ with st.form("model_form", border=False):
                 if not isinstance(parsed, dict):
                     raise ValueError("必须是 JSON 对象")
                 extra = parsed
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 st.error(
                     f"附加参数不是合法 JSON 对象：{exc}\n\n"
                     '正确示例：{"thinking": {"type": "enabled"}}（注意最外层大括号）'
                 )
                 st.stop()
         profile = ModelProfile(
-            id=str(mid or "").strip(), label=mlabel.strip(), base_url=murl.strip(),
-            api_key=mkey.strip(), api_key_env=menv.strip(), model=mmodel.strip(),
-            vision_model=mvision.strip(), vision_content_type=mvct,
-            token_param=mtoken, extra=extra,
+            id=str(mid or "").strip(),
+            label=mlabel.strip(),
+            base_url=murl.strip(),
+            api_key=mkey.strip(),
+            api_key_env=menv.strip(),
+            model=mmodel.strip(),
+            vision_model=mvision.strip(),
+            vision_content_type=mvct,
+            token_param=mtoken,
+            extra=extra,
             note=editing_profile.note if editing_profile else "",
         )
         missing = profile.missing_fields()
@@ -234,9 +268,12 @@ with st.container(border=True):
             model_ids = [profile.id for profile in profiles] or [""]
             current = bound.get(kind) or ""
             chosen = st.selectbox(
-                kind, ["", *model_ids], index=(["", *model_ids].index(current) if current in ["", *model_ids] else 0),
+                kind,
+                ["", *model_ids],
+                index=(["", *model_ids].index(current) if current in ["", *model_ids] else 0),
                 format_func=lambda x: (
-                    "（未绑定，使用第一个模型）" if not x
+                    "（未绑定，使用第一个模型）"
+                    if not x
                     else next((p.display_name for p in profiles if p.id == x), x)
                 ),
                 label_visibility="collapsed",
@@ -255,18 +292,21 @@ st.divider()
 st.markdown("#### 并发与数据目录")
 
 col_conc, col_roots = st.columns([1, 2], gap="large")
-with col_conc:
-    with st.form("conc_form", border=False):
-        st.markdown("**并发设置**")
-        fetch_c = st.number_input("抓取并发", value=config.concurrency("fetch", 8), min_value=1, max_value=64)
-        sum_c = st.number_input("摘要并发", value=config.concurrency("summarize", 5), min_value=1, max_value=64)
-        if st.form_submit_button("保存并发设置", width="stretch"):
-            try:
-                config.set_concurrency("fetch", int(fetch_c))
-                config.set_concurrency("summarize", int(sum_c))
-                st.success("已保存")
-            except ConfigError as exc:
-                st.error(str(exc))
+with col_conc, st.form("conc_form", border=False):
+    st.markdown("**并发设置**")
+    fetch_c = st.number_input(
+        "抓取并发", value=config.concurrency("fetch", 8), min_value=1, max_value=64
+    )
+    sum_c = st.number_input(
+        "摘要并发", value=config.concurrency("summarize", 5), min_value=1, max_value=64
+    )
+    if st.form_submit_button("保存并发设置", width="stretch"):
+        try:
+            config.set_concurrency("fetch", int(fetch_c))
+            config.set_concurrency("summarize", int(sum_c))
+            st.success("已保存")
+        except ConfigError as exc:
+            st.error(str(exc))
 with col_roots:
     st.markdown("**数据目录**（相对路径基于项目根目录）")
     for key, path in config.data_roots().items():

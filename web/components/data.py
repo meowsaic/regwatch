@@ -10,8 +10,9 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 import streamlit as st
 
@@ -20,8 +21,8 @@ _PROJECT_ROOT = _WEB_DIR.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from regwatch.analyze import analyze  # noqa: E402
-from regwatch.storage import (  # noqa: E402
+from regwatch.analyze import analyze
+from regwatch.storage import (
     DATASETS,
     CaseRow,
     build_all_catalogs,
@@ -33,21 +34,21 @@ from regwatch.storage import (  # noqa: E402
 )
 
 __all__ = [
+    "clear_data_cache",
+    "filter_case_dicts",
+    "load_case_payload",
+    "load_case_text",
     "load_rows",
     "load_stats",
-    "load_case_text",
-    "load_case_payload",
-    "filter_case_dicts",
     "violation_options",
-    "clear_data_cache",
 ]
 
 
 @st.cache_data(ttl=300, show_spinner="正在载入案例清单…")
 def _load_catalog_cached(
-    datasets: Tuple[str, ...], signature: Tuple[Any, ...]
-) -> List[Dict[str, Any]]:
-    rows: List[CaseRow] = []
+    datasets: tuple[str, ...], signature: tuple[Any, ...]
+) -> list[dict[str, Any]]:
+    rows: list[CaseRow] = []
     for dataset in datasets:
         rows.extend(build_catalog(dataset))
     rows.sort(key=lambda row: (row.date, row.case_id), reverse=True)
@@ -56,12 +57,12 @@ def _load_catalog_cached(
 
 @st.cache_data(ttl=300, show_spinner="正在计算统计数据…")
 def _load_stats_cached(
-    datasets: Tuple[str, ...],
-    signature: Tuple[Any, ...],
+    datasets: tuple[str, ...],
+    signature: tuple[Any, ...],
     date_from: str = "",
     date_to: str = "",
-) -> Dict[str, Any]:
-    rows: List[CaseRow] = []
+) -> dict[str, Any]:
+    rows: list[CaseRow] = []
     for dataset in datasets:
         rows.extend(build_catalog(dataset))
     rows.sort(key=lambda row: (row.date, row.case_id), reverse=True)
@@ -77,12 +78,12 @@ def _load_stats_cached(
     return payload
 
 
-def _select(datasets: Sequence[str]) -> Tuple[str, ...]:
+def _select(datasets: Sequence[str]) -> tuple[str, ...]:
     selected = tuple(ds for ds in datasets if ds in DATASETS)
     return selected or tuple(DATASETS)
 
 
-def load_rows(datasets: Sequence[str] = DATASETS, force: bool = False) -> List[Dict[str, Any]]:
+def load_rows(datasets: Sequence[str] = DATASETS, force: bool = False) -> list[dict[str, Any]]:
     """载入案例清单（字典形式，不含正文）。"""
     selected = _select(datasets)
     if force:
@@ -95,18 +96,16 @@ def load_stats(
     datasets: Sequence[str] = DATASETS,
     date_from: str = "",
     date_to: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """载入统计聚合结果（分布、对比、趋势、代表案例）。
 
     ``date_from`` / ``date_to`` 为 ``YYYY-MM-DD``（含边界），可单独使用。
     """
     selected = _select(datasets)
-    return _load_stats_cached(
-        selected, catalog_signature(selected), date_from or "", date_to or ""
-    )
+    return _load_stats_cached(selected, catalog_signature(selected), date_from or "", date_to or "")
 
 
-def load_case_text(case: Dict[str, Any]) -> str:
+def load_case_text(case: dict[str, Any]) -> str:
     """按需读取案例正文。"""
     path = str(case.get("case_file") or "")
     if path and Path(path).exists():
@@ -122,7 +121,7 @@ def load_case_text(case: Dict[str, Any]) -> str:
     return str((data or {}).get("raw_text", ""))
 
 
-def load_case_payload(case: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def load_case_payload(case: dict[str, Any]) -> dict[str, Any] | None:
     """读取案例完整 JSON（含全部原始字段）。"""
     path = str(case.get("case_file") or "")
     if path and Path(path).exists():
@@ -137,7 +136,7 @@ def load_case_payload(case: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def filter_case_dicts(
-    rows: Sequence[Dict[str, Any]],
+    rows: Sequence[dict[str, Any]],
     datasets: Sequence[str] = (),
     entity_types: Sequence[str] = (),
     violation_types: Sequence[str] = (),
@@ -147,8 +146,8 @@ def filter_case_dicts(
     date_from: str = "",
     date_to: str = "",
     keyword: str = "",
-    limit: Optional[int] = None,
-) -> List[Dict[str, Any]]:
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
     """对字典清单做多维筛选（语义与 :func:`regwatch.storage.filter_rows` 一致）。"""
     dataset_set = set(datasets)
     entity_set = set(entity_types)
@@ -158,7 +157,7 @@ def filter_case_dicts(
     case_type_set = set(case_types)
     needle = (keyword or "").strip().lower()
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for item in rows:
         if dataset_set and item.get("dataset") not in dataset_set:
             continue
@@ -191,7 +190,7 @@ def filter_case_dicts(
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def violation_options() -> List[str]:
+def violation_options() -> list[str]:
     """违规类型下拉选项（分类体系 + 数据中实际出现的类型）。"""
     from regwatch.prompts import VIOLATION_TYPES
 

@@ -16,10 +16,11 @@ import threading
 import time
 import traceback
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 from .datamodels import TaskRecord, TaskStatus
 from .logutil import bind_task, configure_logging, get_logger, get_task_log_router
@@ -28,18 +29,18 @@ from .storage import DATASET_AMAC, DATASET_CSRC, DATASETS
 __all__ = [
     "JOB_KINDS",
     "JOB_LABELS",
-    "JobError",
     "JobCancelled",
-    "run_task",
+    "JobError",
     "JobManager",
     "get_job_manager",
     "reset_job_manager",
+    "run_task",
 ]
 
 logger = get_logger("jobs")
 
 #: 全部任务类型及其中文名
-JOB_KINDS: Tuple[str, ...] = (
+JOB_KINDS: tuple[str, ...] = (
     "fetch_amac",
     "fetch_csrc",
     "fetch_monthly",
@@ -48,7 +49,7 @@ JOB_KINDS: Tuple[str, ...] = (
     "org_type",
 )
 
-JOB_LABELS: Dict[str, str] = {
+JOB_LABELS: dict[str, str] = {
     "fetch_amac": "AMAC 案例抓取",
     "fetch_csrc": "CSRC 案例抓取",
     "fetch_monthly": "AMAC 月度公告下载",
@@ -58,7 +59,7 @@ JOB_LABELS: Dict[str, str] = {
 }
 
 #: 每类任务在网页端需要的参数说明（label, key, default, hint）
-JOB_PARAMS: Dict[str, Tuple[Tuple[str, str, Any, str], ...]] = {
+JOB_PARAMS: dict[str, tuple[tuple[str, str, Any, str], ...]] = {
     "fetch_amac": (
         ("起始日期", "start_date", "", "YYYY-MM-DD，留空=上一季度"),
         ("结束日期", "end_date", "", "YYYY-MM-DD，留空=上一季度"),
@@ -107,19 +108,19 @@ ProgressHook = Callable[[int, int, str], None]
 # ──────────────────────────── 参数解析 ────────────────────────────
 
 
-def _parse_date(value: str, field_name: str) -> Optional[Any]:
+def _parse_date(value: str | None, field_name: str) -> date | None:
     from datetime import datetime as _dt
 
-    value = (value or "").strip()
-    if not value:
+    text = (value or "").strip()
+    if not text:
         return None
     try:
-        return _dt.strptime(value, "%Y-%m-%d").date()
+        return _dt.strptime(text, "%Y-%m-%d").date()
     except ValueError as exc:
-        raise JobError(f"{field_name} 日期格式应为 YYYY-MM-DD，收到：{value!r}") from exc
+        raise JobError(f"{field_name} 日期格式应为 YYYY-MM-DD，收到：{text!r}") from exc
 
 
-def _split_csv(value: str) -> List[str]:
+def _split_csv(value: str) -> list[str]:
     return [item.strip() for item in (value or "").split(",") if item.strip()]
 
 
@@ -128,10 +129,10 @@ def _split_csv(value: str) -> List[str]:
 
 def run_task(
     kind: str,
-    params: Dict[str, Any],
-    on_progress: Optional[ProgressHook] = None,
+    params: dict[str, Any],
+    on_progress: ProgressHook | None = None,
     config: Any = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """按任务类型分发执行，返回可 JSON 序列化的结果。
 
     Args:
@@ -153,21 +154,21 @@ def run_task(
 
         categories = params.get("categories") or "all"
         selected = None if categories in ("", "all") else _split_csv(categories)
-        result = amac.fetch(
+        amac_result = amac.fetch(
             start_date=_parse_date(params.get("start_date"), "起始日期"),
             end_date=_parse_date(params.get("end_date"), "结束日期"),
             categories=selected,
             config=config,
             on_progress=on_progress,
         )
-        return result.to_dict()
+        return amac_result.to_dict()
 
     if kind == "fetch_csrc":
         from .sources import csrc
 
         bureaus_param = params.get("bureaus") or "all"
         types_param = params.get("case_types") or "all"
-        result = csrc.fetch(
+        csrc_result = csrc.fetch(
             start_date=_parse_date(params.get("start_date"), "起始日期"),
             end_date=_parse_date(params.get("end_date"), "结束日期"),
             bureaus=None if bureaus_param in ("", "all") else _split_csv(bureaus_param),
@@ -176,7 +177,7 @@ def run_task(
             config=config,
             on_progress=on_progress,
         )
-        return result.to_dict()
+        return csrc_result.to_dict()
 
     if kind == "fetch_monthly":
         from .sources import amac_monthly
@@ -194,20 +195,28 @@ def run_task(
         workers = int(params.get("workers") or 0) or None
         retry_failed = bool(params.get("retry_failed", True))
 
-        merged: Dict[str, Any] = {"datasets": datasets, "total": 0, "success": 0,
-                                  "skipped": 0, "failed": 0, "errors": []}
+        merged: dict[str, Any] = {
+            "datasets": datasets,
+            "total": 0,
+            "success": 0,
+            "skipped": 0,
+            "failed": 0,
+            "errors": [],
+        }
         for item in datasets:
-            result = summarize.summarize(
-                item, config=config, workers=workers,
+            sum_result = summarize.summarize(
+                item,
+                config=config,
+                workers=workers,
                 retry_failed=retry_failed,
                 limit=int(params.get("limit") or 0) or None,
                 on_progress=on_progress,
             )
-            merged["total"] += result.total
-            merged["success"] += result.success
-            merged["skipped"] += result.skipped
-            merged["failed"] += result.failed
-            merged["errors"].extend(result.errors)
+            merged["total"] += sum_result.total
+            merged["success"] += sum_result.success
+            merged["skipped"] += sum_result.skipped
+            merged["failed"] += sum_result.failed
+            merged["errors"].extend(sum_result.errors)
         return merged
 
     if kind == "report":
@@ -228,25 +237,23 @@ def run_task(
 
         cfg = config or _get_config()
         directory = cfg.data_root("csrc_reports" if dataset == DATASET_CSRC else "amac_reports")
-        stem = (
-            f"{dataset}_报告_{datetime.now().strftime('%Y%m%d_%H%M')}"
-        )
+        stem = f"{dataset}_报告_{datetime.now().strftime('%Y%m%d_%H%M')}"
         paths = report_mod.save_report_files(output, directory, stem=stem)
-        result = output.to_dict()
-        result["paths"] = paths
-        return result
+        report_payload = output.to_dict()
+        report_payload["paths"] = paths
+        return report_payload
 
     if kind == "org_type":
         from .org_type import backfill_org_types
 
         limit = int(params.get("limit") or 0) or None
-        result = backfill_org_types(
+        org_result = backfill_org_types(
             dry_run=bool(params.get("dry_run", False)),
             config=config,
             limit=limit,
             on_progress=on_progress,
         )
-        return result.to_dict()
+        return org_result.to_dict()
 
     raise JobError(f"任务类型未实现：{kind}")  # pragma: no cover
 
@@ -257,7 +264,7 @@ def run_task(
 @dataclass
 class _JobHandle:
     record: TaskRecord
-    thread: Optional[threading.Thread] = None
+    thread: threading.Thread | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
 
 
@@ -267,21 +274,21 @@ class JobManager:
     def __init__(self, capacity: int = 200) -> None:
         self.capacity = capacity
         self._lock = threading.RLock()
-        self._jobs: Dict[str, _JobHandle] = {}
-        self._order: List[str] = []
+        self._jobs: dict[str, _JobHandle] = {}
+        self._order: list[str] = []
 
     # ── 查询 ──
 
-    def get(self, job_id: str) -> Optional[TaskRecord]:
+    def get(self, job_id: str) -> TaskRecord | None:
         with self._lock:
             handle = self._jobs.get(job_id)
             return handle.record if handle else None
 
-    def jobs(self, limit: int = 50) -> List[TaskRecord]:
+    def jobs(self, limit: int = 50) -> list[TaskRecord]:
         """返回最近的任务记录（新的在前）。"""
         with self._lock:
             ordered = list(reversed(self._order))
-        records: List[TaskRecord] = []
+        records: list[TaskRecord] = []
         for job_id in ordered[:limit]:
             record = self.get(job_id)
             if record is not None:
@@ -298,11 +305,10 @@ class JobManager:
     def running_count(self) -> int:
         with self._lock:
             return sum(
-                1 for handle in self._jobs.values()
-                if handle.record.status is TaskStatus.RUNNING
+                1 for handle in self._jobs.values() if handle.record.status is TaskStatus.RUNNING
             )
 
-    def log_lines(self, job_id: str, start: int = 0) -> List[str]:
+    def log_lines(self, job_id: str, start: int = 0) -> list[str]:
         return get_task_log_router().lines(job_id, start)
 
     def log_text(self, job_id: str, start: int = 0) -> str:
@@ -313,7 +319,7 @@ class JobManager:
     def submit(
         self,
         kind: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
         title: str = "",
         config: Any = None,
     ) -> str:
@@ -370,7 +376,9 @@ class JobManager:
         logger.info("已请求取消任务：%s", job_id)
         return True
 
-    def wait(self, job_id: str, timeout: Optional[float] = None, poll: float = 0.2) -> Optional[TaskRecord]:
+    def wait(
+        self, job_id: str, timeout: float | None = None, poll: float = 0.2
+    ) -> TaskRecord | None:
         """阻塞等待任务结束，超时返回当前记录。"""
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
@@ -398,7 +406,7 @@ class JobManager:
 
     def _execute(self, handle: _JobHandle, config: Any) -> None:
         record = handle.record
-        router = get_task_log_router()
+        get_task_log_router()
         bind_task(record.id)
         record.status = TaskStatus.RUNNING
         record.started_at = datetime.now().isoformat(timespec="seconds")
@@ -406,8 +414,10 @@ class JobManager:
 
         try:
             result = run_task(
-                record.kind, record.params,
-                on_progress=self._progress_hook(handle), config=config,
+                record.kind,
+                record.params,
+                on_progress=self._progress_hook(handle),
+                config=config,
             )
             record.result = result if isinstance(result, dict) else {"value": result}
             record.status = TaskStatus.SUCCESS
@@ -417,7 +427,7 @@ class JobManager:
             record.status = TaskStatus.CANCELLED
             record.message = "任务已取消"
             logger.warning("任务被取消：%s", record.title)
-        except Exception as exc:  # noqa: BLE001 - 任务级兜底
+        except Exception as exc:
             record.status = TaskStatus.FAILED
             record.error = f"{type(exc).__name__}: {exc}"
             logger.error("任务失败：%s | %s", record.title, record.error)
@@ -459,7 +469,7 @@ class JobManager:
                 break
 
 
-_manager: Optional[JobManager] = None
+_manager: JobManager | None = None
 _manager_lock = threading.Lock()
 
 

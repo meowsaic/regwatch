@@ -19,14 +19,17 @@
 ## 快速开始
 
 ```powershell
-# 1. 安装依赖（Python 3.10+，本仓库在 3.12 开发）
-pip install -r requirements.txt
+# 1. 安装依赖（Python 3.11+，推荐 uv）
+uv sync --extra web --extra dev
+# 等价：pip install -e ".[web,dev]"
 
 # 2. 首次运行会自动生成 config.json（已加入 .gitignore，不会提交密钥）
-python -m regwatch.cli config show
+uv run regwatch config show
+# 或：python -m regwatch.cli config show
 
 # 3. 启动网页界面
-python run_web.py            # 或 python -m regwatch.cli web --port 8501
+uv run regwatch web --port 8501
+# 或：python run_web.py
 ```
 
 打开浏览器访问 http://localhost:8501 ，在「模型与配置」页填写：
@@ -44,7 +47,7 @@ python run_web.py            # 或 python -m regwatch.cli web --port 8501
 | 页面 | 能力 |
 |------|------|
 | 总览看板 | 核心指标卡、数据集构成、违规类型 TOP10、年度趋势、最新案例 |
-| 案例浏览 | 按 数据集 / 主体类型 / 违规类型 / 处理状态 / 来源局 / 日期 / 关键词 组合筛选；表格点选查看详情与决定书原文 |
+| 案例浏览 | 按 数据集 / 主体类型 / 违规类型 / 处理状态 / 来源局 / 日期区间 / 关键词 组合筛选；支持一键清除筛选；表格点选查看详情与决定书原文 |
 | 统计分析 | 违规分布、处罚构成、机构 vs 个人对比、法规引用 TOP、月度趋势、年度×月热力图 |
 | 任务中心 | 网页发起抓取 / 摘要 / 报告 / 机构类型回填任务，实时进度条与分流日志，支持取消与自动刷新 |
 | 模型与配置 | 模型条目增删改、连通性测试、任务到模型的绑定、并发与数据目录展示 |
@@ -131,16 +134,25 @@ e:/Desktop/codes/
 任务与模型解耦：`tasks.summarize / tasks.report / tasks.vision` 分别指定摘要、报告建议、
 视觉识别用哪个模型条目；未绑定时使用第一个模型。若端点不支持某个参数，客户端会自动剥离该参数重试。
 
-## 测试
+## 测试与质量门禁
 
 ```powershell
-python -m unittest discover -s tests -t .          # 全量（不发网络请求）
-python -m unittest tests.test_storage -v           # 单模块
-$env:REGWATCH_LIVE_TEST = "1"; python -m unittest tests.test_live -v   # 可选实网测试
+uv run python -m unittest discover -s tests -t .   # 全量单测（不发网络请求）
+uv run python -m unittest tests.test_storage -v    # 单模块
+uv run ruff check regwatch tests                   # 静态检查
+uv run ruff format regwatch tests                  # 格式化
+uv run mypy regwatch                               # 类型检查（核心包）
+
+$env:REGWATCH_LIVE_TEST = "1"; uv run python -m unittest tests.test_live -v   # 可选实网测试
 ```
+
+依赖与工具链以 `pyproject.toml` 为准；`requirements.txt` 仅作 pip 兼容参考。
+开发环境建议 Python 3.11+（uv 会自动选择解释器）。
 
 ## 常见问题
 
 - **网页打开但图表为空**：先在「任务中心」运行一次摘要提取，或点击侧边栏「刷新数据缓存」。
 - **摘要任务报未配置模型**：到「模型与配置」页填写 base_url / api_key / model 并保存。
 - **想换数据目录**：修改 `config.json` 的 `data_roots`，相对路径基于项目根目录。
+- **国内网络拉依赖慢**：`uv sync` 可配合镜像，例如  
+  `$env:UV_DEFAULT_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"`

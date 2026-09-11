@@ -20,20 +20,21 @@ import logging
 import re
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 from .config import Config, ConfigError, get_config
 from .datamodels import ModelProfile
 
 __all__ = [
-    "LLMError",
-    "Usage",
     "ChatResult",
     "LLMClient",
+    "LLMError",
+    "Usage",
     "get_llm",
-    "reset_clients",
     "parse_json_response",
+    "reset_clients",
 ]
 
 logger = logging.getLogger("regwatch.llm")
@@ -99,7 +100,7 @@ def _as_text(value: Any) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, (list, tuple)):
-        parts: List[str] = []
+        parts: list[str] = []
         for item in value:
             if isinstance(item, str):
                 parts.append(item)
@@ -120,7 +121,7 @@ class Usage:
     total_tokens: int = 0
 
     @classmethod
-    def from_raw(cls, raw: Any) -> "Usage":
+    def from_raw(cls, raw: Any) -> Usage:
         if raw is None:
             return cls()
         return cls(
@@ -187,9 +188,7 @@ class LLMClient:
         if self._client is None:
             missing = self.profile.missing_fields()
             if missing:
-                raise LLMError(
-                    f"模型配置「{self.profile.display_name}」缺少：{'、'.join(missing)}"
-                )
+                raise LLMError(f"模型配置「{self.profile.display_name}」缺少：{'、'.join(missing)}")
             if not self.profile.api_key:
                 raise LLMError(
                     f"模型配置「{self.profile.display_name}」未提供 API Key"
@@ -214,12 +213,12 @@ class LLMClient:
 
     def chat(
         self,
-        messages: Sequence[Dict[str, Any]],
-        model: Optional[str] = None,
-        max_tokens: Optional[int] = 8000,
-        temperature: Optional[float] = 0.1,
-        extra: Optional[Dict[str, Any]] = None,
-        response_format: Optional[Dict[str, Any]] = None,
+        messages: Sequence[dict[str, Any]],
+        model: str | None = None,
+        max_tokens: int | None = 8000,
+        temperature: float | None = 0.1,
+        extra: dict[str, Any] | None = None,
+        response_format: dict[str, Any] | None = None,
     ) -> ChatResult:
         """发起一次对话调用。
 
@@ -235,7 +234,7 @@ class LLMClient:
         if not target_model:
             raise LLMError(f"模型配置「{self.profile.display_name}」未指定模型名称")
 
-        kwargs: Dict[str, Any] = {"model": target_model, "messages": list(messages)}
+        kwargs: dict[str, Any] = {"model": target_model, "messages": list(messages)}
 
         if max_tokens:
             token_param = self.profile.token_param or "max_tokens"
@@ -246,7 +245,7 @@ class LLMClient:
             kwargs["response_format"] = response_format
 
         # 附加参数：条目级 extra 打底，调用级 extra 覆盖；None 值表示显式省略
-        merged_extra: Dict[str, Any] = dict(self.profile.extra or {})
+        merged_extra: dict[str, Any] = dict(self.profile.extra or {})
         merged_extra.update(extra or {})
         merged_extra.pop("token_param", None)
         for key, value in merged_extra.items():
@@ -258,11 +257,11 @@ class LLMClient:
     def chat_text(
         self,
         prompt: str,
-        system: Optional[str] = None,
+        system: str | None = None,
         **kwargs: Any,
     ) -> str:
         """便捷方法：单轮对话并直接返回文本。"""
-        messages: List[Dict[str, Any]] = []
+        messages: list[dict[str, Any]] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
@@ -274,7 +273,7 @@ class LLMClient:
         prompt: str,
         max_tokens: int = 4000,
         temperature: float = 0.1,
-        content_type: Optional[str] = None,
+        content_type: str | None = None,
     ) -> str:
         """把远端 PDF / 图片地址交给视觉模型识别并返回文本。
 
@@ -284,12 +283,12 @@ class LLMClient:
         content_type = content_type or self.profile.vision_content_type or "image_url"
         alt_type = "file_url" if content_type == "image_url" else "image_url"
 
-        def _message_part(kind: str) -> Dict[str, Any]:
+        def _message_part(kind: str) -> dict[str, Any]:
             # 智谱等端点要求 content[0] 必须带 type 字段，如
             # {"type": "file_url", "file_url": {"url": ...}}（OpenAI 同构）
             return {"type": kind, kind: {"url": file_url}}
 
-        messages = [
+        messages: list[dict[str, Any]] = [
             {
                 "role": "user",
                 "content": [
@@ -325,7 +324,7 @@ class LLMClient:
 
     # ── 连通性测试 ──
 
-    def test_connection(self) -> Tuple[bool, str]:
+    def test_connection(self) -> tuple[bool, str]:
         """最小代价验证配置可用性，返回 ``(是否成功, 说明)``。"""
         missing = self.profile.missing_fields()
         if missing:
@@ -347,7 +346,7 @@ class LLMClient:
                 if self.profile.model and self.profile.model not in ids:
                     hint = f"；注意当前模型 {self.profile.model} 不在返回列表中"
                 return True, f"连接成功，端点返回 {len(ids)} 个可用模型{hint}"
-        except Exception as exc:  # noqa: BLE001 - 需要兜底到真实对话
+        except Exception as exc:
             model_error = str(exc)
             logger.debug("models.list 不可用，回退到最小对话：%s", self._mask(model_error))
 
@@ -365,33 +364,31 @@ class LLMClient:
             return True, f"连接成功，模型 {result.model or self.profile.model} 响应正常"
         except LLMError as exc:
             return False, str(exc)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return False, self._mask(f"{type(exc).__name__}: {exc}")
 
     # ── 内部实现 ──
 
-    def _invoke(self, kwargs: Dict[str, Any]) -> ChatResult:
+    def _invoke(self, kwargs: dict[str, Any]) -> ChatResult:
         """执行请求：参数降级 + 瞬时错误退避重试。"""
         working = dict(kwargs)
         attempt = 0
-        last_error: Optional[BaseException] = None
+        last_error: BaseException | None = None
 
         while True:
             try:
                 response = self.client.chat.completions.create(**working)
                 return self._to_result(response)
-            except Exception as exc:  # noqa: BLE001 - 需要区分参数错误与瞬时错误
+            except Exception as exc:
                 last_error = exc
 
                 degraded = self._degrade(working, exc)
                 if degraded:
-                    logger.warning(
-                        "端点不接受参数 %s，已自动剥离后重试", degraded
-                    )
+                    logger.warning("端点不接受参数 %s，已自动剥离后重试", degraded)
                     continue
 
                 if attempt < self.max_retries and self._is_transient(exc):
-                    wait = self.backoff * (2 ** attempt)
+                    wait = self.backoff * (2**attempt)
                     attempt += 1
                     logger.warning(
                         "模型调用失败（%s），%.1fs 后重试 %d/%d",
@@ -406,7 +403,7 @@ class LLMClient:
 
         raise LLMError(self._format_error(last_error)) from last_error
 
-    def _degrade(self, working: Dict[str, Any], exc: BaseException) -> Optional[str]:
+    def _degrade(self, working: dict[str, Any], exc: BaseException) -> str | None:
         """从错误信息中定位不兼容参数并将其剥离，返回被剥离的参数说明。"""
         message = str(exc).lower()
         if not any(hint in message for hint in _PARAM_ERROR_HINTS):
@@ -466,7 +463,7 @@ class LLMClient:
             return text.replace(key, self.profile.masked_key)
         return text
 
-    def _format_error(self, exc: Optional[BaseException]) -> str:
+    def _format_error(self, exc: BaseException | None) -> str:
         if exc is None:
             return "未知错误"
         return self._mask(f"{type(exc).__name__}: {exc}")
@@ -474,7 +471,7 @@ class LLMClient:
 
 # ──────────────────────────── 客户端工厂 ────────────────────────────
 
-_clients: Dict[str, LLMClient] = {}
+_clients: dict[str, LLMClient] = {}
 _clients_lock = threading.Lock()
 
 
@@ -494,9 +491,9 @@ def _signature(profile: ModelProfile) -> str:
 
 
 def get_llm(
-    task: Optional[str] = None,
-    model_id: Optional[str] = None,
-    config: Optional[Config] = None,
+    task: str | None = None,
+    model_id: str | None = None,
+    config: Config | None = None,
     timeout: float = _DEFAULT_TIMEOUT,
     max_retries: int = _DEFAULT_MAX_RETRIES,
     force_new: bool = False,
@@ -531,7 +528,7 @@ def reset_clients() -> None:
         _clients.clear()
 
 
-def test_profile(profile: ModelProfile, timeout: float = 30.0) -> Tuple[bool, str]:
+def test_profile(profile: ModelProfile, timeout: float = 30.0) -> tuple[bool, str]:
     """直接测试一条模型配置的连通性（不经过缓存与全局配置）。"""
     client = LLMClient(profile, timeout=timeout, max_retries=1)
     return client.test_connection()
@@ -565,10 +562,10 @@ def _iter_json_candidates(text: str):
         except json.JSONDecodeError:
             continue
         if isinstance(obj, dict):
-            yield text[index: index + end]
+            yield text[index : index + end]
 
 
-def parse_json_response(text: str) -> Optional[Dict[str, Any]]:
+def parse_json_response(text: str) -> dict[str, Any] | None:
     """从模型输出中稳健地解析 JSON 对象。
 
     兼容：markdown 代码块包裹、前后夹杂解释文字、尾随逗号。

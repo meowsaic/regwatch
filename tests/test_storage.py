@@ -47,23 +47,49 @@ def make_amac_fixture(base: Path) -> None:
     (cases / "personnel").mkdir(parents=True)
     summaries.mkdir(parents=True)
 
-    write_json(cases / "institution" / "20250101_1001.json", {
-        "case_id": "20250101_1001", "category": "scfjg", "title": "某投资管理公司纪律处分",
-        "date": "2025-01-01", "raw_text": "正文" * 40, "ocr_success": True,
-        "org_type": "私募证券投资基金管理人", "punished_entity": "某投资管理有限公司",
-    })
-    write_json(summaries / "20250101_1001_summary.json", {
-        "case_id": "20250101_1001", "category": "scfjg", "title": "某投资管理公司纪律处分",
-        "date": "2025-01-01", "punished_entity": "某投资管理有限公司", "entity_type": "机构",
-        "org_type": "私募证券投资基金管理人", "violation_type": "违规募集、内控缺失",
-        "punishment": "公开谴责", "violation_summary": "摘要", "legal_basis": "《私募办法》",
-        "extract_success": True,
-    })
+    write_json(
+        cases / "institution" / "20250101_1001.json",
+        {
+            "case_id": "20250101_1001",
+            "category": "scfjg",
+            "title": "某投资管理公司纪律处分",
+            "date": "2025-01-01",
+            "raw_text": "正文" * 40,
+            "ocr_success": True,
+            "org_type": "私募证券投资基金管理人",
+            "punished_entity": "某投资管理有限公司",
+        },
+    )
+    write_json(
+        summaries / "20250101_1001_summary.json",
+        {
+            "case_id": "20250101_1001",
+            "category": "scfjg",
+            "title": "某投资管理公司纪律处分",
+            "date": "2025-01-01",
+            "punished_entity": "某投资管理有限公司",
+            "entity_type": "机构",
+            "org_type": "私募证券投资基金管理人",
+            "violation_type": "违规募集、内控缺失",
+            "punishment": "公开谴责",
+            "violation_summary": "摘要",
+            "legal_basis": "《私募办法》",
+            "extract_success": True,
+        },
+    )
 
     index = AmacIndex(cases)
-    index.update_category("Institution", [
-        {"link_url": "https://amac.example/1", "title": "某投资管理公司纪律处分", "date": "2025-01-01"},
-    ], last_page=0)
+    index.update_category(
+        "Institution",
+        [
+            {
+                "link_url": "https://amac.example/1",
+                "title": "某投资管理公司纪律处分",
+                "date": "2025-01-01",
+            },
+        ],
+        last_page=0,
+    )
     index.mark_done("Institution", "https://amac.example/1")
 
     summary_index = SummaryIndex(summaries)
@@ -76,29 +102,59 @@ def make_csrc_fixture(base: Path) -> None:
     (cases / "Beijing" / "measure").mkdir(parents=True)
     (summaries / "Beijing" / "measure").mkdir(parents=True)
 
-    write_json(cases / "Beijing" / "measure" / "20250301_c1234567.json", {
-        "case_id": "20250301_c1234567", "bureau": "Beijing", "case_type": "measure",
-        "title": "关于对某基金管理有限公司采取警示函措施的决定", "date": "2025-03-01",
-        "raw_text": "正文" * 50, "punished_entities": "某基金管理有限公司",
-        "document_number": "京证监〔2025〕1号", "is_fund_related": True, "fund_evidence": "标题含'基金'",
-    })
-    write_json(summaries / "Beijing" / "measure" / "20250301_c1234567_summary.json", {
-        "case_id": "20250301_c1234567", "bureau": "Beijing", "case_type": "measure",
-        "title": "关于对某基金管理有限公司采取警示函措施的决定", "date": "2025-03-01",
-        "punished_entities": "某基金管理有限公司", "entity_type": "机构",
-        "violation_type": "内控缺失", "punishment": "出具警示函",
-        "violation_summary": "内控不健全", "extract_success": True,
-    })
+    write_json(
+        cases / "Beijing" / "measure" / "20250301_c1234567.json",
+        {
+            "case_id": "20250301_c1234567",
+            "bureau": "Beijing",
+            "case_type": "measure",
+            "title": "关于对某基金管理有限公司采取警示函措施的决定",
+            "date": "2025-03-01",
+            "raw_text": "正文" * 50,
+            "punished_entities": "某基金管理有限公司",
+            "document_number": "京证监〔2025〕1号",
+            "is_fund_related": True,
+            "fund_evidence": "标题含'基金'",
+        },
+    )
+    write_json(
+        summaries / "Beijing" / "measure" / "20250301_c1234567_summary.json",
+        {
+            "case_id": "20250301_c1234567",
+            "bureau": "Beijing",
+            "case_type": "measure",
+            "title": "关于对某基金管理有限公司采取警示函措施的决定",
+            "date": "2025-03-01",
+            "punished_entities": "某基金管理有限公司",
+            "entity_type": "机构",
+            "violation_type": "内控缺失",
+            "punishment": "出具警示函",
+            "violation_summary": "内控不健全",
+            "extract_success": True,
+        },
+    )
 
     index = CsrcIndex(cases)
-    index.update_source("Beijing/measure", [
-        {"link_url": "https://csrc.example/x/c1234567/content.shtml",
-         "title": "关于对某基金管理有限公司采取警示函措施的决定", "date": "2025-03-01"},
-        {"link_url": "https://csrc.example/x/c7654321/content.shtml",
-         "title": "关于对某证券公司的行政处罚决定", "date": "2025-02-01"},
-    ], last_page=0)
+    index.update_source(
+        "Beijing/measure",
+        [
+            {
+                "link_url": "https://csrc.example/x/c1234567/content.shtml",
+                "title": "关于对某基金管理有限公司采取警示函措施的决定",
+                "date": "2025-03-01",
+            },
+            {
+                "link_url": "https://csrc.example/x/c7654321/content.shtml",
+                "title": "关于对某证券公司的行政处罚决定",
+                "date": "2025-02-01",
+            },
+        ],
+        last_page=0,
+    )
     index.mark_done("Beijing/measure", "https://csrc.example/x/c1234567/content.shtml")
-    index.mark_skipped("Beijing/measure", "https://csrc.example/x/c7654321/content.shtml", "title_non_fund")
+    index.mark_skipped(
+        "Beijing/measure", "https://csrc.example/x/c7654321/content.shtml", "title_non_fund"
+    )
 
     summary_index = SummaryIndex(summaries)
     summary_index.mark_done("20250301_c1234567", "Beijing/measure/20250301_c1234567_summary.json")
@@ -140,10 +196,14 @@ class StorageTests(unittest.TestCase):
         self.assertEqual((stats["total"], stats["done"]), (1, 1))
         self.assertEqual(index.get_pending_links("Personnel"), [])
 
-        index.update_category("Institution", [
-            {"link_url": "https://amac.example/1", "title": "改后标题", "date": "2025-01-01"},
-            {"link_url": "https://amac.example/2", "title": "新案例", "date": "2025-02-01"},
-        ], last_page=3)
+        index.update_category(
+            "Institution",
+            [
+                {"link_url": "https://amac.example/1", "title": "改后标题", "date": "2025-01-01"},
+                {"link_url": "https://amac.example/2", "title": "新案例", "date": "2025-02-01"},
+            ],
+            last_page=3,
+        )
         stats = index.get_stats("Institution")
         self.assertEqual((stats["total"], stats["done"], stats["pending"]), (2, 1, 1))
         self.assertEqual(index.get_last_crawled_page("Institution"), 3)
@@ -156,7 +216,9 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(stats["done"], 1)
         self.assertEqual(stats["skipped_not_fund"], 1)
 
-        index.mark_failed("Beijing/measure", "https://csrc.example/x/c1234567/content.shtml", "网络错误")
+        index.mark_failed(
+            "Beijing/measure", "https://csrc.example/x/c1234567/content.shtml", "网络错误"
+        )
         self.assertEqual(index.get_stats("Beijing/measure")["failed"], 1)
         lookup = index.link_lookup_by_content_id()
         self.assertIn("c7654321", lookup)
@@ -166,7 +228,9 @@ class StorageTests(unittest.TestCase):
         index = SummaryIndex(self.base / "amac" / "summaries")
         self.assertTrue(index.is_done("20250101_1001"))
         self.assertFalse(index.is_done("20250101_9999"))
-        self.assertEqual(index.get_pending_cases(["20250101_1001", "20250101_9999"]), ["20250101_9999"])
+        self.assertEqual(
+            index.get_pending_cases(["20250101_1001", "20250101_9999"]), ["20250101_9999"]
+        )
 
         index.mark_failed("20250101_9999", "模型超时")
         self.assertEqual(index.get_failed_cases(), ["20250101_9999"])
@@ -207,7 +271,9 @@ class StorageTests(unittest.TestCase):
         by_id = {row.case_id: row for row in rows}
         done = by_id["20250301_c1234567"]
         self.assertEqual(done.status, "done")
-        self.assertEqual(done.case_type_label, "行政处罚" if done.case_type == "penalty" else "监管措施")
+        self.assertEqual(
+            done.case_type_label, "行政处罚" if done.case_type == "penalty" else "监管措施"
+        )
         skipped = by_id["20250201_c7654321"]
         self.assertEqual(skipped.status, "skipped")
         # 标题与机构信息由抓取索引补全
@@ -222,12 +288,21 @@ class StorageTests(unittest.TestCase):
         second = build_catalog(DATASET_AMAC, self.cfg)
         self.assertIs(first, second)
 
-        write_json(self.base / "amac" / "summaries" / "20250501_1002_summary.json", {
-            "case_id": "20250501_1002", "category": "scfry", "date": "2025-05-01",
-            "punished_entity": "张三", "entity_type": "个人", "violation_type": "内控缺失",
-            "extract_success": True,
-        })
-        SummaryIndex(self.base / "amac" / "summaries").mark_done("20250501_1002", "20250501_1002_summary.json")
+        write_json(
+            self.base / "amac" / "summaries" / "20250501_1002_summary.json",
+            {
+                "case_id": "20250501_1002",
+                "category": "scfry",
+                "date": "2025-05-01",
+                "punished_entity": "张三",
+                "entity_type": "个人",
+                "violation_type": "内控缺失",
+                "extract_success": True,
+            },
+        )
+        SummaryIndex(self.base / "amac" / "summaries").mark_done(
+            "20250501_1002", "20250501_1002_summary.json"
+        )
         rows = build_catalog(DATASET_AMAC, self.cfg)
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0].case_id, "20250501_1002")

@@ -21,7 +21,7 @@ from __future__ import annotations
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -51,7 +51,7 @@ app.add_typer(config_app, name="config", help="配置管理")
 console = Console()
 
 
-def _parse_date(value: Optional[str], label: str):
+def _parse_date(value: str | None, label: str):
     if not value:
         return None
     try:
@@ -98,8 +98,8 @@ def _handle_error(exc: Exception) -> None:
 
 @fetch_app.command("amac")
 def fetch_amac(
-    start: Optional[str] = typer.Option(None, "--start", help="起始日期 YYYY-MM-DD，留空=上一季度"),
-    end: Optional[str] = typer.Option(None, "--end", help="结束日期 YYYY-MM-DD"),
+    start: str | None = typer.Option(None, "--start", help="起始日期 YYYY-MM-DD，留空=上一季度"),
+    end: str | None = typer.Option(None, "--end", help="结束日期 YYYY-MM-DD"),
     categories: str = typer.Option("all", "--categories", help="all / Institution / Personnel"),
 ) -> None:
     """抓取中基协纪律处分案例。"""
@@ -119,8 +119,8 @@ def fetch_amac(
 
 @fetch_app.command("csrc")
 def fetch_csrc(
-    start: Optional[str] = typer.Option(None, "--start", help="起始日期 YYYY-MM-DD，留空=2022-01-01"),
-    end: Optional[str] = typer.Option(None, "--end", help="结束日期 YYYY-MM-DD，留空=今天"),
+    start: str | None = typer.Option(None, "--start", help="起始日期 YYYY-MM-DD，留空=2022-01-01"),
+    end: str | None = typer.Option(None, "--end", help="结束日期 YYYY-MM-DD，留空=今天"),
     bureaus: str = typer.Option("all", "--bureaus", help="逗号分隔的局英文标识，all=全部 37 个"),
     case_types: str = typer.Option("all", "--types", help="all / penalty / measure"),
     concurrency: int = typer.Option(0, "--concurrency", help="详情页并发数，0=使用配置默认值"),
@@ -157,7 +157,9 @@ def fetch_monthly() -> None:
     except (JobError, ConfigError) as exc:
         _handle_error(exc)
         return
-    console.print(f"[green]下载成功 {result.get('success', 0)} 个，失败 {result.get('failed', 0)} 个[/green]")
+    console.print(
+        f"[green]下载成功 {result.get('success', 0)} 个，失败 {result.get('failed', 0)} 个[/green]"
+    )
     for name, path in (result.get("dirs") or {}).items():
         console.print(f"  {name}: {path}")
 
@@ -167,7 +169,9 @@ def fetch_url(
     url: str = typer.Option(..., "--url", help="案例详情页或 PDF 链接"),
     dataset: str = typer.Option("amac", "--dataset", help="amac / csrc"),
     bureau: str = typer.Option("HQ", "--bureau", help="仅 CSRC：来源局英文标识"),
-    category: str = typer.Option("Institution", "--category", help="仅 AMAC：Institution / Personnel"),
+    category: str = typer.Option(
+        "Institution", "--category", help="仅 AMAC：Institution / Personnel"
+    ),
     case_type: str = typer.Option("penalty", "--case-type", help="仅 CSRC：penalty / measure"),
 ) -> None:
     """抓取单个案例 URL 并落库。"""
@@ -178,6 +182,7 @@ def fetch_url(
         return
 
     try:
+        case: Any = None
         if dataset == "amac":
             from .sources import amac
 
@@ -233,16 +238,15 @@ def summarize(
 @app.command()
 def report(
     dataset: str = typer.Option("amac", "--dataset", help="amac / csrc"),
-    start: Optional[str] = typer.Option(None, "--start", help="起始日期 YYYY-MM-DD，留空=全量"),
-    end: Optional[str] = typer.Option(None, "--end", help="结束日期 YYYY-MM-DD，留空=全量"),
+    start: str | None = typer.Option(None, "--start", help="起始日期 YYYY-MM-DD，留空=全量"),
+    end: str | None = typer.Option(None, "--end", help="结束日期 YYYY-MM-DD，留空=全量"),
     llm: bool = typer.Option(False, "--llm/--no-llm", help="是否调用模型撰写合规建议"),
-    out: Optional[Path] = typer.Option(None, "--out", help="输出目录，默认为数据集 reports 目录"),
-    name: Optional[str] = typer.Option(None, "--name", help="输出文件名（不含扩展名）"),
+    out: Path | None = typer.Option(None, "--out", help="输出目录，默认为数据集 reports 目录"),
+    name: str | None = typer.Option(None, "--name", help="输出文件名（不含扩展名）"),
 ) -> None:
     """生成 Markdown / HTML / JSON 三格式分析报告。"""
     configure_logging()
     from . import report as report_mod
-    from .jobs import run_task
 
     dataset = dataset.strip().lower()
     if dataset not in DATASETS:
@@ -256,8 +260,10 @@ def report(
             end_date=end or "",
             use_llm=llm,
         )
-        directory = Path(out) if out else get_config().data_root(
-            "csrc_reports" if dataset == "csrc" else "amac_reports"
+        directory = (
+            Path(out)
+            if out
+            else get_config().data_root("csrc_reports" if dataset == "csrc" else "amac_reports")
         )
         stem = name or f"{dataset}_报告_{datetime.now().strftime('%Y%m%d_%H%M')}"
         paths = report_mod.save_report_files(output, directory, stem=stem)
@@ -310,24 +316,31 @@ def config_show() -> None:
     cfg = get_config()
 
     table = Table(title="模型配置")
-    for column, justify in (("标识", "left"), ("名称", "left"), ("接口地址", "left"),
-                            ("文本模型", "left"), ("视觉模型", "left"), ("密钥", "left")):
-        table.add_column(column, justify=justify)
+    for column in ("标识", "名称", "接口地址", "文本模型", "视觉模型", "密钥"):
+        table.add_column(column, justify="left")
     for profile in cfg.models():
         table.add_row(
-            profile.id, profile.display_name, profile.base_url,
-            profile.model, profile.vision_model or "（回落文本模型）", profile.masked_key,
+            profile.id,
+            profile.display_name,
+            profile.base_url,
+            profile.model,
+            profile.vision_model or "（回落文本模型）",
+            profile.masked_key,
         )
     console.print(table)
     if not cfg.models():
-        console.print("[yellow]尚未配置任何模型，请使用 `regwatch config add-model` 或网页端「模型配置」页添加[/yellow]")
+        console.print(
+            "[yellow]尚未配置任何模型，请使用 `regwatch config add-model` 或网页端「模型配置」页添加[/yellow]"
+        )
 
     tasks = Table(title="任务 → 模型绑定")
     tasks.add_column("任务")
     tasks.add_column("绑定模型")
     for kind in TASK_KINDS:
         bound = cfg.task_model_id(kind)
-        tasks.add_row(f"{kind}（{TASK_LABELS[kind]}）", bound or "[yellow]（未绑定，使用第一个模型）[/yellow]")
+        tasks.add_row(
+            f"{kind}（{TASK_LABELS[kind]}）", bound or "[yellow]（未绑定，使用第一个模型）[/yellow]"
+        )
     console.print(tasks)
 
     roots = Table(title="数据目录")
@@ -339,12 +352,14 @@ def config_show() -> None:
     console.print(roots)
 
     console.print(f"配置文件：{cfg.path}（{'存在' if cfg.exists_on_disk() else '尚未生成'}）")
-    console.print(f"并发：fetch={cfg.concurrency('fetch', 8)}, summarize={cfg.concurrency('summarize', 5)}")
+    console.print(
+        f"并发：fetch={cfg.concurrency('fetch', 8)}, summarize={cfg.concurrency('summarize', 5)}"
+    )
 
 
 @config_app.command("test")
 def config_test(
-    model_id: Optional[str] = typer.Argument(None, help="要测试的模型 ID；留空测试全部"),
+    model_id: str | None = typer.Argument(None, help="要测试的模型 ID；留空测试全部"),
 ) -> None:
     """测试模型连通性（最小请求，不回显密钥）。"""
     cfg = get_config()
@@ -373,15 +388,22 @@ def config_add_model(
     model: str = typer.Option(..., "--model", help="文本模型名，如 deepseek-chat"),
     label: str = typer.Option("", "--label", help="展示名称"),
     vision_model: str = typer.Option("", "--vision-model", help="视觉模型名（可选）"),
-    token_param: str = typer.Option("max_tokens", "--token-param", help="max_tokens / max_completion_tokens"),
+    token_param: str = typer.Option(
+        "max_tokens", "--token-param", help="max_tokens / max_completion_tokens"
+    ),
 ) -> None:
     """新增或覆盖一条模型配置。"""
     from .datamodels import ModelProfile
 
     cfg = get_config()
     profile = ModelProfile(
-        id=model_id, label=label, base_url=base_url, api_key=api_key,
-        model=model, vision_model=vision_model, token_param=token_param,
+        id=model_id,
+        label=label,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        vision_model=vision_model,
+        token_param=token_param,
     )
     missing = profile.missing_fields()
     if missing:
@@ -430,12 +452,16 @@ def web(
     try:
         import streamlit.web.cli as stcli
     except ImportError:
-        console.print("[red]未安装 streamlit，请执行：pip install -r requirements.txt[/red]")
-        raise typer.Exit(code=2)
+        console.print(
+            "[red]未安装 streamlit，请执行：uv sync --extra web 或 pip install streamlit plotly[/red]"
+        )
+        raise typer.Exit(code=2) from None
 
     console.print(f"[green]启动网页界面：http://{host}:{port}[/green]")
     sys.argv = [
-        "streamlit", "run", str(app_path),
+        "streamlit",
+        "run",
+        str(app_path),
         f"--server.port={port}",
         f"--server.address={host}",
         "--server.headless=true",

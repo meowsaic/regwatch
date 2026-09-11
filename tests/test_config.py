@@ -81,7 +81,9 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(fetched.display_name, "单测")
 
         # 覆盖更新
-        self.cfg.upsert_model(ModelProfile(id="unit-test", label="单测2", base_url="https://y/v1", model="m2"))
+        self.cfg.upsert_model(
+            ModelProfile(id="unit-test", label="单测2", base_url="https://y/v1", model="m2")
+        )
         self.assertEqual(self.cfg.get_model("unit-test").label, "单测2")
         self.assertEqual(len([m for m in self.cfg.models() if m.id == "unit-test"]), 1)
 
@@ -122,9 +124,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(self.cfg.resolved_profile(task="report").id, "second")
         self.assertEqual(self.cfg.resolved_profile(model_id="second").id, "second")
         # 显式 model_id 优先于 task
-        self.assertEqual(
-            self.cfg.resolved_profile(model_id="first", task="report").id, "first"
-        )
+        self.assertEqual(self.cfg.resolved_profile(model_id="first", task="report").id, "first")
 
     def test_resolved_profile_errors(self) -> None:
         self.cfg.data["models"] = []
@@ -151,8 +151,11 @@ class ConfigTests(unittest.TestCase):
     def test_api_key_env_field_takes_precedence(self) -> None:
         self.cfg.data["models"] = [
             ModelProfile(
-                id="named", base_url="https://x", model="m",
-                api_key="file", api_key_env="UNIT_TEST_KEY",
+                id="named",
+                base_url="https://x",
+                model="m",
+                api_key="file",
+                api_key_env="UNIT_TEST_KEY",
             ).to_dict()
         ]
         os.environ["UNIT_TEST_KEY"] = "named-env"

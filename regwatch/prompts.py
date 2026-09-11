@@ -15,23 +15,21 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
-
 __all__ = [
     "AMAC_EXTRACT_PROMPT",
-    "CSRC_EXTRACT_PROMPT",
     "COMPLIANCE_ADVICE_PROMPT",
+    "CSRC_EXTRACT_PROMPT",
+    "PUNISHMENT_CATEGORIES",
+    "VIOLATION_ADVICE",
     "VIOLATION_TYPES",
     "VIOLATION_TYPES_AMAC",
     "VIOLATION_TYPES_CSRC",
-    "VIOLATION_ADVICE",
-    "PUNISHMENT_CATEGORIES",
 ]
 
 # ──────────────────────────── 违规类型分类体系 ────────────────────────────
 
 #: AMAC 纪律处分使用的 16 类违规类型（与提取提示词保持一致）
-VIOLATION_TYPES_AMAC: List[str] = [
+VIOLATION_TYPES_AMAC: list[str] = [
     "违规募集",
     "未按规定备案",
     "登记信息失实",
@@ -51,7 +49,7 @@ VIOLATION_TYPES_AMAC: List[str] = [
 ]
 
 #: CSRC 处罚 / 措施使用的 14 类违规类型（与提取提示词保持一致）
-VIOLATION_TYPES_CSRC: List[str] = [
+VIOLATION_TYPES_CSRC: list[str] = [
     "信息披露违规",
     "操纵市场",
     "内幕交易",
@@ -69,12 +67,10 @@ VIOLATION_TYPES_CSRC: List[str] = [
 ]
 
 #: 两套体系的并集，用于统计归一与界面筛选下拉（保持稳定顺序）
-VIOLATION_TYPES: List[str] = list(
-    dict.fromkeys(VIOLATION_TYPES_CSRC + VIOLATION_TYPES_AMAC)
-)
+VIOLATION_TYPES: list[str] = list(dict.fromkeys(VIOLATION_TYPES_CSRC + VIOLATION_TYPES_AMAC))
 
 #: 处罚类别归类关键词，用于把自由文本处罚措施归入粗类别
-PUNISHMENT_CATEGORIES: Dict[str, List[str]] = {
+PUNISHMENT_CATEGORIES: dict[str, list[str]] = {
     "警告": ["警告"],
     "公开谴责": ["公开谴责"],
     "暂停受理备案": ["暂停受理"],
@@ -222,7 +218,7 @@ COMPLIANCE_ADVICE_PROMPT = """你是一名专业的私募基金合规顾问。�
 
 # ──────────────────────────── 针对性防控建议 ────────────────────────────
 
-VIOLATION_ADVICE: Dict[str, List[str]] = {
+VIOLATION_ADVICE: dict[str, list[str]] = {
     "违规募集": [
         "严格审查募集渠道资质，禁止委托无基金销售资格机构开展募集",
         "杜绝任何形式的保本保收益承诺，包括口头承诺和抽屉协议",

@@ -18,10 +18,11 @@ for _path in (str(_PROJECT_ROOT), str(_HERE.parent)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from components import ui  # noqa: E402
-from components.data import clear_data_cache, load_stats  # noqa: E402
-from regwatch.jobs import get_job_manager  # noqa: E402
-from regwatch.logutil import configure_logging  # noqa: E402
+from regwatch.jobs import get_job_manager
+from regwatch.logutil import configure_logging
+
+from components import ui
+from components.data import clear_data_cache, load_stats
 
 st.set_page_config(
     page_title="regwatch · 基金监管案例看板",
@@ -65,7 +66,7 @@ try:
         + "</div>",
         unsafe_allow_html=True,
     )
-except Exception as exc:  # noqa: BLE001 - 首次运行数据缺失时也不阻塞导航
+except Exception as exc:
     st.caption(f"数据加载提示：{exc}")
 
 pages = [

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import unittest
-
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
@@ -28,7 +27,8 @@ class WebAppTests(unittest.TestCase):
                 )
                 at.run()
                 self.assertEqual(
-                    len(at.exception), 0,
+                    len(at.exception),
+                    0,
                     name + ": " + "\n".join(e.message or "" for e in at.exception),
                 )
 

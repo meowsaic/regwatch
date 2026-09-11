@@ -21,31 +21,30 @@ import re
 import sys
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import copy
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 from urllib.parse import parse_qs, urljoin, urlsplit
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 from requests.adapters import HTTPAdapter, Retry
 
 from ..config import Config, get_config
 from ..logutil import get_logger
 from ..storage import CsrcIndex, write_json
-
-# 证监局配置（37 个来源：会本部 + 36 家派出机构）
+from ._html import as_tag, attr_str
 from .csrc_bureaus import BUREAUS, Bureau, discover_penalty_url, get_bureau_by_name
-
 
 # ──────────────────────────── 全局配置 ────────────────────────────
 
 # 案例类型常量
-CASE_TYPE_PENALTY = "penalty"   # 行政处罚
-CASE_TYPE_MEASURE = "measure"   # 监管措施
+CASE_TYPE_PENALTY = "penalty"  # 行政处罚
+CASE_TYPE_MEASURE = "measure"  # 监管措施
 
 # 默认抓取起始日期（spec 要求覆盖 2022-01-01 至今）
 DEFAULT_START_DATE = datetime(2022, 1, 1).date()
@@ -63,15 +62,15 @@ HEADERS = {
 
 TIMEOUT = 30
 MAX_RETRIES = 3
-DELAY_BETWEEN_PAGES = 1.5         # 列表页翻页间隔
-DELAY_BETWEEN_CASES = 1.0         # 串行模式下详情页请求之间的间隔（并发模式下不使用）
-LIST_PAGE_RETRIES = 3             # 单个列表页请求失败重试次数
-MAX_CONSECUTIVE_PAGE_FAILURES = 3 # 连续多页失败上限
+DELAY_BETWEEN_PAGES = 1.5  # 列表页翻页间隔
+DELAY_BETWEEN_CASES = 1.0  # 串行模式下详情页请求之间的间隔（并发模式下不使用）
+LIST_PAGE_RETRIES = 3  # 单个列表页请求失败重试次数
+MAX_CONSECUTIVE_PAGE_FAILURES = 3  # 连续多页失败上限
 
 # 并发抓取相关配置
-DEFAULT_CONCURRENCY = 8           # 默认线程池大小（单源内并发）
-MAX_CONCURRENCY = 32              # 允许的最大并发数
-MIN_CONCURRENCY = 1               # 最小并发数（1 即串行模式）
+DEFAULT_CONCURRENCY = 8  # 默认线程池大小（单源内并发）
+MAX_CONCURRENCY = 32  # 允许的最大并发数
+MIN_CONCURRENCY = 1  # 最小并发数（1 即串行模式）
 
 # 案例类型中文映射
 CASE_TYPE_CN = {
@@ -116,6 +115,7 @@ logger = get_logger("sources.csrc")
 
 # ──────────────────────────── 数据模型 ────────────────────────────
 
+
 @dataclass
 class CaseData:
     """单个案例的完整数据模型。
@@ -123,24 +123,26 @@ class CaseData:
     字段对齐 CSRC 详情页实际内容：元数据表格包含索引号、分类、发布机构、
     发文日期、名称、文号、主题词。
     """
-    case_id: str               # 唯一标识，如 20260213_c7615688
-    source_url: str            # 详情页 URL
-    case_type: str             # penalty | measure
-    bureau: str                # 来源局英文标识，如 HQ / Beijing
-    title: str                 # 案例标题
-    date: str                  # 发布日期 YYYY-MM-DD
-    raw_text: str = ""         # 清洗后的正文全文
+
+    case_id: str  # 唯一标识，如 20260213_c7615688
+    source_url: str  # 详情页 URL
+    case_type: str  # penalty | measure
+    bureau: str  # 来源局英文标识，如 HQ / Beijing
+    title: str  # 案例标题
+    date: str  # 发布日期 YYYY-MM-DD
+    raw_text: str = ""  # 清洗后的正文全文
     fetch_time: str = ""
     error: str = ""
-    is_fund_related: bool = False   # 是否基金相关
-    fund_evidence: str = ""         # 基金判定依据
-    document_number: str = ""       # 文号，如"〔2025〕47号"，从正文开头提取
-    punished_entities: str = ""     # 受处罚主体（从标题或正文提取，多个用顿号分隔）
-    pdf_url: str = ""              # PDF 附件 URL（如有，不做 OCR）
-    doc_url: str = ""              # Word 文档附件 URL（如有，已提取文本）
+    is_fund_related: bool = False  # 是否基金相关
+    fund_evidence: str = ""  # 基金判定依据
+    document_number: str = ""  # 文号，如"〔2025〕47号"，从正文开头提取
+    punished_entities: str = ""  # 受处罚主体（从标题或正文提取，多个用顿号分隔）
+    pdf_url: str = ""  # PDF 附件 URL（如有，不做 OCR）
+    doc_url: str = ""  # Word 文档附件 URL（如有，已提取文本）
 
 
 # ──────────────────────────── HTTP Session ────────────────────────────
+
 
 class SessionManager:
     """全局 HTTP 会话单例，带重试与连接池。"""
@@ -165,8 +167,11 @@ class SessionManager:
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["HEAD", "GET", "OPTIONS", "POST"],
         )
-        adapter = HTTPAdapter(max_retries=retry, pool_connections=MAX_CONCURRENCY + 4,
-                              pool_maxsize=MAX_CONCURRENCY + 4)
+        adapter = HTTPAdapter(
+            max_retries=retry,
+            pool_connections=MAX_CONCURRENCY + 4,
+            pool_maxsize=MAX_CONCURRENCY + 4,
+        )
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
 
@@ -185,6 +190,7 @@ class SessionManager:
 
 
 # ──────────────────────────── 工具函数 ────────────────────────────
+
 
 def extract_id_from_url(url: str) -> str:
     """从详情页 URL 提取案例唯一标识。
@@ -215,7 +221,7 @@ def build_case_id(date_str: str, url: str) -> str:
     return content_id
 
 
-def parse_date_from_text(text: str) -> Optional[datetime.date]:
+def parse_date_from_text(text: str) -> date | None:
     """从文本中解析日期，支持 YYYY-MM-DD 与 YYYY年MM月DD日。"""
     if not text:
         return None
@@ -246,7 +252,8 @@ CaseIndex = CsrcIndex
 
 # ──────────────────────────── 受处罚主体提取 ────────────────────────────
 
-def extract_org_name_from_title(title: str) -> Optional[str]:
+
+def extract_org_name_from_title(title: str) -> str | None:
     """从案例标题中正则提取受处罚机构名称。
 
     证监会标题常见形式：
@@ -262,9 +269,19 @@ def extract_org_name_from_title(title: str) -> Optional[str]:
         m = re.search(pattern, title)
         if m:
             name = m.group(1).strip()
-            for suffix in ["的行政处罚决定书", "行政处罚决定书", "的监管措施决定书", "监管措施决定书",
-                           "的决定书", "决定书", "送达公告", "（送达公告）", "(送达公告)",
-                           "事先告知书", "复核决定书"]:
+            for suffix in [
+                "的行政处罚决定书",
+                "行政处罚决定书",
+                "的监管措施决定书",
+                "监管措施决定书",
+                "的决定书",
+                "决定书",
+                "送达公告",
+                "（送达公告）",
+                "(送达公告)",
+                "事先告知书",
+                "复核决定书",
+            ]:
                 name = name.replace(suffix, "")
             name = name.rstrip("的、，,")
             if len(name) >= 4:
@@ -277,9 +294,11 @@ def extract_org_name_from_title(title: str) -> Optional[str]:
         parts = re.split(r"[、，,]", inner)
         for part in parts:
             part = part.strip()
-            if re.search(r"(?:公司|企业|基金|合伙|中心|集团|事务所|有限|资本|投资)", part):
-                if len(part) >= 4:
-                    return part
+            if (
+                re.search(r"(?:公司|企业|基金|合伙|中心|集团|事务所|有限|资本|投资)", part)
+                and len(part) >= 4
+            ):
+                return part
 
     # 标题中含机构后缀的连续串
     m = re.search(r"([^\s,，、（）\(\)]+(?:公司|企业|基金|合伙|中心|集团|事务所|有限|资本))", title)
@@ -290,7 +309,7 @@ def extract_org_name_from_title(title: str) -> Optional[str]:
     return None
 
 
-def extract_full_org_name_from_text(short_name: Optional[str], raw_text: str) -> Optional[str]:
+def extract_full_org_name_from_text(short_name: str | None, raw_text: str) -> str | None:
     """从正文正则提取机构完整名称（当标题只有简称时使用）。"""
     if not raw_text or len(raw_text) < 10:
         return None
@@ -302,17 +321,29 @@ def extract_full_org_name_from_text(short_name: Optional[str], raw_text: str) ->
         m = re.search(r"([^，,：:；;\n]+)（以下简称" + escaped + r"）", snippet)
         if m:
             name = m.group(1).strip()
-            for prefix in ["当事人：", "当事人:", "被申请人：", "被申请人:",
-                           "申请人：", "申请人:", "被处罚人：", "被处罚人:",
-                           "被处置机构：", "被处置机构:", "被调查人：", "被调查人:"]:
+            for prefix in [
+                "当事人：",
+                "当事人:",
+                "被申请人：",
+                "被申请人:",
+                "申请人：",
+                "申请人:",
+                "被处罚人：",
+                "被处罚人:",
+                "被处置机构：",
+                "被处置机构:",
+                "被调查人：",
+                "被调查人:",
+            ]:
                 if name.startswith(prefix):
-                    name = name[len(prefix):].strip()
+                    name = name[len(prefix) :].strip()
             if len(name) >= 4 and re.search(r"(?:公司|企业|有限|合伙|事务所|集团)", name):
                 return name
 
     for prefix in ["当事人", "被申请人", "申请人", "被处罚人", "被处置机构", "被调查人"]:
         m = re.search(
-            prefix + r"[：:]\s*([^\n,，。；;（(]+?(?:公司|企业|有限|合伙|事务所|集团)[^\n]*?)(?:[，,。\n（(]|$)",
+            prefix
+            + r"[：:]\s*([^\n,，。；;（(]+?(?:公司|企业|有限|合伙|事务所|集团)[^\n]*?)(?:[，,。\n（(]|$)",
             snippet,
         )
         if m:
@@ -336,10 +367,18 @@ def extract_full_org_name_from_text(short_name: Optional[str], raw_text: str) ->
     )
     if m:
         name = m.group(1).strip()
-        for prefix in ["当事人：", "当事人:", "被申请人：", "被申请人:",
-                       "申请人：", "申请人:", "被处罚人：", "被处罚人:"]:
+        for prefix in [
+            "当事人：",
+            "当事人:",
+            "被申请人：",
+            "被申请人:",
+            "申请人：",
+            "申请人:",
+            "被处罚人：",
+            "被处罚人:",
+        ]:
             if name.startswith(prefix):
-                name = name[len(prefix):].strip()
+                name = name[len(prefix) :].strip()
         if len(name) >= 4:
             return name
 
@@ -363,6 +402,7 @@ def extract_punished_entities(title: str, raw_text: str) -> str:
 
 # ──────────────────────────── 文号提取 ────────────────────────────
 
+
 def extract_document_number(raw_text: str) -> str:
     """从正文开头提取文号，如'〔2025〕47号'、'沪〔2023〕31号'。"""
     if not raw_text:
@@ -384,11 +424,22 @@ def extract_document_number(raw_text: str) -> str:
 
 # 标题中明确属于非基金领域的关键词
 NON_FUND_TITLE_KEYWORDS = [
-    "证券公司", "证券股份有限公司", "证券有限责任公司", "证券有限公司", "证券承销保荐",
-    "期货公司", "期货有限公司", "期货股份有限公司",
-    "上市公司", "股份有限公司（上市公司）",
-    "银行", "商业银行", "股份制银行",
-    "保险", "保险公司", "保险集团",
+    "证券公司",
+    "证券股份有限公司",
+    "证券有限责任公司",
+    "证券有限公司",
+    "证券承销保荐",
+    "期货公司",
+    "期货有限公司",
+    "期货股份有限公司",
+    "上市公司",
+    "股份有限公司（上市公司）",
+    "银行",
+    "商业银行",
+    "股份制银行",
+    "保险",
+    "保险公司",
+    "保险集团",
     "信托公司",
     "财务公司",
     "金融控股",
@@ -398,7 +449,7 @@ NON_FUND_TITLE_KEYWORDS = [
 ]
 
 
-def is_fund_by_title(title: str) -> Optional[bool]:
+def is_fund_by_title(title: str) -> bool | None:
     """根据标题预判是否基金相关。
 
     Returns:
@@ -425,7 +476,8 @@ def is_fund_by_content(raw_text: str) -> bool:
 
 # ──────────────────────────── HTML 页面获取 ────────────────────────────
 
-def fetch_html_page(html_url: str) -> Optional[BeautifulSoup]:
+
+def fetch_html_page(html_url: str) -> BeautifulSoup | None:
     """获取 HTML 页面并返回 BeautifulSoup 对象。
 
     CSRC 网站使用 UTF-8，但 requests 在 Content-Type 未声明 charset 时
@@ -445,7 +497,8 @@ def fetch_html_page(html_url: str) -> Optional[BeautifulSoup]:
 
 # ──────────────────────────── HTML 正文提取 ────────────────────────────
 
-def extract_text_from_html(html_url: str, soup: Optional[BeautifulSoup] = None) -> Optional[str]:
+
+def extract_text_from_html(html_url: str, soup: BeautifulSoup | None = None) -> str | None:
     """从 CSRC 详情页 HTML 提取正文文本，修复行内标签导致的分段问题。
 
     CSRC 详情页正文容器为 div.detail-news，内部用大量 <span><font> 包裹
@@ -459,7 +512,7 @@ def extract_text_from_html(html_url: str, soup: Optional[BeautifulSoup] = None) 
             return None
 
         # 查找正文容器
-        content_area = (
+        content_area = as_tag(
             soup.find("div", class_="detail-news")
             or soup.find("div", class_="TRS_Editor")
             or soup.find("div", class_="Custom_UnionStyle")
@@ -467,9 +520,7 @@ def extract_text_from_html(html_url: str, soup: Optional[BeautifulSoup] = None) 
             or soup.find("div", id=re.compile(r"detail|article|content|zoom|zoom_content", re.I))
         )
         if not content_area:
-            main_div = soup.find("div", class_=re.compile(r"right|main|cont"))
-            if main_div:
-                content_area = main_div
+            content_area = as_tag(soup.find("div", class_=re.compile(r"right|main|cont")))
 
         if not content_area:
             body_text = soup.get_text(separator="\n", strip=True)
@@ -481,7 +532,9 @@ def extract_text_from_html(html_url: str, soup: Optional[BeautifulSoup] = None) 
             tag.decompose()
 
         # 移除打印/关闭等按钮区
-        for tag in content_area.find_all("div", class_=re.compile(r"xxgk-down|down-box|print|clear")):
+        for tag in content_area.find_all(
+            "div", class_=re.compile(r"xxgk-down|down-box|print|clear")
+        ):
             tag.decompose()
 
         # 复制一份避免修改原 soup
@@ -492,15 +545,43 @@ def extract_text_from_html(html_url: str, soup: Optional[BeautifulSoup] = None) 
             br.replace_with("\n")
 
         # 2) unwrap 行内标签（span, font, a, b, i, em, strong, u, sub, sup, o:p, center）
-        inline_tags = ["span", "font", "a", "b", "i", "em", "strong", "u",
-                       "sub", "sup", "o:p", "center", "mark", "small", "big"]
+        inline_tags = [
+            "span",
+            "font",
+            "a",
+            "b",
+            "i",
+            "em",
+            "strong",
+            "u",
+            "sub",
+            "sup",
+            "o:p",
+            "center",
+            "mark",
+            "small",
+            "big",
+        ]
         for tag_name in inline_tags:
             for tag in work_area.find_all(tag_name):
                 tag.unwrap()
 
         # 3) 在块级标签后添加换行符
-        block_tags = ["p", "div", "li", "h1", "h2", "h3", "h4", "h5", "h6",
-                      "tr", "table", "blockquote", "pre"]
+        block_tags = [
+            "p",
+            "div",
+            "li",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "tr",
+            "table",
+            "blockquote",
+            "pre",
+        ]
         for tag_name in block_tags:
             for tag in work_area.find_all(tag_name):
                 tag.append("\n")
@@ -530,7 +611,8 @@ def extract_text_from_html(html_url: str, soup: Optional[BeautifulSoup] = None) 
 
 # ──────────────────────────── PDF 链接发现 ────────────────────────────
 
-def find_pdf_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -> Optional[str]:
+
+def find_pdf_link_in_page(page_url: str, soup: BeautifulSoup | None = None) -> str | None:
     """从 HTML 详情页查找内嵌 PDF 链接，优先附件下载区。"""
     try:
         if soup is None:
@@ -541,7 +623,7 @@ def find_pdf_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -
         # 1) 附件下载区
         for container in soup.find_all("div", class_="attachment-down"):
             for link in container.find_all("a", href=True):
-                href = link["href"]
+                href = attr_str(link, "href")
                 if ".pdf" in href.lower():
                     pdf_url = urljoin(page_url, href)
                     progress(f"  [附件区PDF] {pdf_url}")
@@ -549,19 +631,21 @@ def find_pdf_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -
 
         # 2) 含"附件"文字的容器
         for heading in soup.find_all(string=re.compile(r"附件.*下载|下载.*附件")):
-            parent_div = heading.find_parent("div")
+            parent_div = as_tag(heading.find_parent("div"))
             if parent_div:
                 for link in parent_div.find_all("a", href=True):
-                    href = link["href"]
+                    href = attr_str(link, "href")
                     if ".pdf" in href.lower():
                         pdf_url = urljoin(page_url, href)
                         progress(f"  [附件区PDF] {pdf_url}")
                         return pdf_url
 
         # 3) class 含 fujian/attachment/download 的容器
-        for container in soup.find_all("div", class_=re.compile(r"fujian|attachment|download|accessory", re.I)):
+        for container in soup.find_all(
+            "div", class_=re.compile(r"fujian|attachment|download|accessory", re.I)
+        ):
             for link in container.find_all("a", href=True):
-                href = link["href"]
+                href = attr_str(link, "href")
                 if ".pdf" in href.lower():
                     pdf_url = urljoin(page_url, href)
                     progress(f"  [下载区PDF] {pdf_url}")
@@ -570,7 +654,7 @@ def find_pdf_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -
         # 4) 全页面查找，过滤侧边栏链接
         sidebar_prefixes = ("hydj", "xwfb", "hdjl", "hyyj", "sjtj", "zwgk", "tz")
         for link in soup.find_all("a", href=True):
-            href = link["href"]
+            href = attr_str(link, "href")
             if ".pdf" not in href.lower():
                 continue
             parts = href.replace("\\", "/").split("/")
@@ -581,13 +665,15 @@ def find_pdf_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -
             return pdf_url
 
         # 5) iframe / embed
-        iframe = soup.find("iframe", src=True)
-        if iframe and ".pdf" in iframe["src"].lower():
-            return urljoin(page_url, iframe["src"])
+        iframe = as_tag(soup.find("iframe", src=True))
+        iframe_src = attr_str(iframe, "src")
+        if iframe and ".pdf" in iframe_src.lower():
+            return urljoin(page_url, iframe_src)
 
         for embed in soup.find_all("embed", src=True):
-            if ".pdf" in embed["src"].lower():
-                return urljoin(page_url, embed["src"])
+            embed_src = attr_str(embed, "src")
+            if ".pdf" in embed_src.lower():
+                return urljoin(page_url, embed_src)
 
         return None
     except Exception as e:
@@ -595,7 +681,7 @@ def find_pdf_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -
         return None
 
 
-def find_doc_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -> Optional[str]:
+def find_doc_link_in_page(page_url: str, soup: BeautifulSoup | None = None) -> str | None:
     """从 HTML 详情页查找内嵌 Word 文档（.doc/.docx）链接。
 
     内蒙古等局的部分行政处罚决定书以 Word 附件形式提供，详情页正文容器
@@ -615,7 +701,7 @@ def find_doc_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -
             return None
 
         # 优先在正文容器内查找
-        content_area = (
+        content_area = as_tag(
             soup.find("div", class_="detail-news")
             or soup.find("div", class_="TRS_Editor")
             or soup.find("div", class_=re.compile(r"detail|article|content", re.I))
@@ -624,7 +710,7 @@ def find_doc_link_in_page(page_url: str, soup: Optional[BeautifulSoup] = None) -
 
         # 查找 .doc/.docx 链接
         for link in search_scope.find_all("a", href=True):
-            href = link["href"]
+            href = attr_str(link, "href")
             if re.search(r"\.(?:docx?|wps)(?:$|\?)", href, re.I):
                 doc_url = urljoin(page_url, href)
                 progress(f"  [Word文档] {doc_url}")
@@ -650,7 +736,7 @@ def _detect_doc_format(content: bytes) -> str:
     Returns:
         'ole' | 'ooxml' | 'pdf' | 'unknown'
     """
-    if content[:8] == b"\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1":
+    if content[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
         return "ole"
     if content[:4] in (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"):
         return "ooxml"
@@ -673,6 +759,7 @@ def _extract_text_from_ole(content: bytes) -> str:
         提取的纯文本；失败返回空字符串。
     """
     import io
+
     import olefile
 
     try:
@@ -699,7 +786,7 @@ def _extract_text_from_ole(content: bytes) -> str:
         idx = 0
         while idx < len(table_stream) - 6:
             if table_stream[idx] == 0x02:
-                lcb = int.from_bytes(table_stream[idx + 1: idx + 5], "little")
+                lcb = int.from_bytes(table_stream[idx + 1 : idx + 5], "little")
                 if 0 < lcb < len(table_stream) - idx - 5 and (lcb - 4) % 12 == 0:
                     clx_offset = idx + 5
                     clx_len = lcb
@@ -709,25 +796,25 @@ def _extract_text_from_ole(content: bytes) -> str:
         if clx_offset < 0:
             return _fallback_extract_ole_text(word_stream)
 
-        plc = table_stream[clx_offset: clx_offset + clx_len]
+        plc = table_stream[clx_offset : clx_offset + clx_len]
         n = (clx_len - 4) // 12
-        cps = [int.from_bytes(plc[i * 4: (i + 1) * 4], "little") for i in range(n + 1)]
+        cps = [int.from_bytes(plc[i * 4 : (i + 1) * 4], "little") for i in range(n + 1)]
         pcds_start = (n + 1) * 4
 
-        text_parts: List[str] = []
+        text_parts: list[str] = []
         for i in range(n):
-            pcd = plc[pcds_start + i * 8: pcds_start + (i + 1) * 8]
+            pcd = plc[pcds_start + i * 8 : pcds_start + (i + 1) * 8]
             fc_raw = int.from_bytes(pcd[2:6], "little")
             # bit30=1 表示 ANSI 压缩编码（fc 需除以 2），bit30=0 表示 Unicode
             is_unicode = not (fc_raw & 0x40000000)
             fc = fc_raw & 0x3FFFFFFF
             char_count = cps[i + 1] - cps[i]
             if is_unicode:
-                raw = word_stream[fc: fc + char_count * 2]
+                raw = word_stream[fc : fc + char_count * 2]
                 text_parts.append(raw.decode("utf-16-le", errors="ignore"))
             else:
                 fc = fc // 2
-                raw = word_stream[fc: fc + char_count]
+                raw = word_stream[fc : fc + char_count]
                 text_parts.append(raw.decode("cp936", errors="ignore"))
         return "".join(text_parts)
     finally:
@@ -760,7 +847,7 @@ def _extract_text_from_ooxml(content: bytes) -> str:
         import docx  # python-docx
 
         document = docx.Document(io.BytesIO(content))
-        paragraphs: List[str] = []
+        paragraphs: list[str] = []
         for para in document.paragraphs:
             text = para.text.strip()
             if text:
@@ -780,8 +867,8 @@ def _extract_text_from_ooxml(content: bytes) -> str:
 def _extract_text_from_ooxml_xml(content: bytes) -> str:
     """python-docx 失败时，直接从 ZIP 中解析 word/document.xml 提取文本。"""
     import io
-    import zipfile
     import xml.etree.ElementTree as ET
+    import zipfile
 
     try:
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
@@ -796,7 +883,7 @@ def _extract_text_from_ooxml_xml(content: bytes) -> str:
                 tree = ET.parse(f)
         root = tree.getroot()
         w_ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
-        paragraphs: List[str] = []
+        paragraphs: list[str] = []
         for para in root.iter(f"{w_ns}p"):
             texts = [t.text for t in para.iter(f"{w_ns}t") if t.text]
             if texts:
@@ -807,7 +894,7 @@ def _extract_text_from_ooxml_xml(content: bytes) -> str:
         return ""
 
 
-def extract_text_from_docx(doc_url: str) -> Optional[str]:
+def extract_text_from_docx(doc_url: str) -> str | None:
     """下载 Word 文档并提取纯文本，自动检测实际格式。
 
     CSRC 地方局附件常见三类情况：
@@ -874,7 +961,7 @@ def _extract_text_from_pdf_bytes(content: bytes) -> str:
         return ""
 
 
-def extract_text_from_pdf(pdf_url: str) -> Optional[str]:
+def extract_text_from_pdf(pdf_url: str) -> str | None:
     """下载 PDF 并提取文本（非 OCR，仅文本型 PDF 有效）。
 
     CSRC 部分行政处罚/监管措施以 PDF 附件形式提供，正文为可提取的
@@ -908,6 +995,7 @@ def extract_text_from_pdf(pdf_url: str) -> Optional[str]:
 
 # ──────────────────────────── 单案例处理 ────────────────────────────
 
+
 def process_case(
     link_url: str,
     title: str,
@@ -916,7 +1004,7 @@ def process_case(
     case_type: str,
     output_dir: Path,
     skip_fund_check: bool = False,
-) -> Optional[CaseData]:
+) -> CaseData | None:
     """处理单个案例链接：提取内容 → 基金过滤 → 文号/主体提取 → 落盘。
 
     Args:
@@ -937,7 +1025,7 @@ def process_case(
     # 已存在且成功的记录直接复用
     if json_path.exists():
         try:
-            with open(json_path, "r", encoding="utf-8") as f:
+            with open(json_path, encoding="utf-8") as f:
                 existing = json.load(f)
             existing_case = CaseData(**existing)
             if existing_case.raw_text and len(existing_case.raw_text) > 50:
@@ -950,11 +1038,11 @@ def process_case(
             # 旧文件损坏，删除重建
             json_path.unlink(missing_ok=True)
 
-    full_link = link_url if link_url.startswith("http") else urljoin(
-        "https://www.csrc.gov.cn/", link_url
+    full_link = (
+        link_url if link_url.startswith("http") else urljoin("https://www.csrc.gov.cn/", link_url)
     )
 
-    raw_text: Optional[str] = None
+    raw_text: str | None = None
     pdf_url = ""
     doc_url = ""
 
@@ -1052,45 +1140,54 @@ def process_case(
 
 # ──────────────────────────── 列表页爬取 ────────────────────────────
 
-def _parse_list_items_from_soup(soup: BeautifulSoup, base_url: str) -> List[Dict]:
+
+def _parse_list_items_from_soup(soup: BeautifulSoup, base_url: str) -> list[dict]:
     """从 CSRC 列表页 HTML 中解析案例条目。
 
     监管措施列表项格式：`<li><a href="...content.shtml">标题</a>日期</li>`
     行政处罚列表项格式（表格）：`<tr><td>序号</td><td><a href>标题</a></td>...</td><td>日期</td></tr>`
 
     Returns:
-        [{link_url, title, date}, ...]  date 为 datetime.date
+        [{link_url, title, date}, ...]  date 为 ``datetime.date``
     """
-    items: List[BeautifulSoup] = []
+    items: list[Tag] = []
 
     # 1) 优先尝试 li 列表结构（监管措施页常见）
-    for sel in ["ul.list li", "ul.news_list li", ".list-main li",
-                "div.list ul li", "ul li", ".content li"]:
+    for sel in [
+        "ul.list li",
+        "ul.news_list li",
+        ".list-main li",
+        "div.list ul li",
+        "ul li",
+        ".content li",
+    ]:
         found = soup.select(sel)
         if found:
             items = found
             break
 
-    results: List[Dict] = []
+    results: list[dict] = []
 
     if items:
         for item in items:
-            link_tag = item.find("a", href=True)
-            if not link_tag:
+            link_tag = as_tag(item.find("a", href=True))
+            if link_tag is None:
                 continue
             full_row_text = item.get_text(separator=" ", strip=True)
             raw_title = link_tag.get_text(strip=True)
             if not raw_title or len(raw_title) < 4:
                 continue
-            link_url = link_tag["href"]
+            link_url = attr_str(link_tag, "href")
             item_date = parse_date_from_text(full_row_text)
             if not item_date:
                 continue
-            results.append({
-                "link_url": link_url,
-                "title": raw_title,
-                "date": item_date,
-            })
+            results.append(
+                {
+                    "link_url": link_url,
+                    "title": raw_title,
+                    "date": item_date,
+                }
+            )
 
     # 2) 表格结构（部分行政处罚页可能采用）
     if not results:
@@ -1098,8 +1195,8 @@ def _parse_list_items_from_soup(soup: BeautifulSoup, base_url: str) -> List[Dict
             cells = row.find_all("td")
             if len(cells) < 2:
                 continue
-            link_tag = row.find("a", href=True)
-            if not link_tag:
+            link_tag = as_tag(row.find("a", href=True))
+            if link_tag is None:
                 continue
             raw_title = link_tag.get_text(strip=True)
             if not raw_title or len(raw_title) < 4:
@@ -1108,32 +1205,35 @@ def _parse_list_items_from_soup(soup: BeautifulSoup, base_url: str) -> List[Dict
             item_date = parse_date_from_text(row_text)
             if not item_date:
                 continue
-            results.append({
-                "link_url": link_tag["href"],
-                "title": raw_title,
-                "date": item_date,
-            })
+            results.append(
+                {
+                    "link_url": attr_str(link_tag, "href"),
+                    "title": raw_title,
+                    "date": item_date,
+                }
+            )
 
     # 规范化相对 URL
     for r in results:
-        if not r["link_url"].startswith("http"):
-            r["link_url"] = urljoin(base_url, r["link_url"])
+        link_url = r["link_url"]
+        if isinstance(link_url, str) and not link_url.startswith("http"):
+            r["link_url"] = urljoin(base_url, link_url)
 
     return results
 
 
 def _filter_links_by_date(
-    links: List[Dict],
-    start_date: datetime.date,
-    end_date: datetime.date,
-) -> Tuple[List[Dict], bool]:
+    links: list[dict],
+    start_date: date,
+    end_date: date,
+) -> tuple[list[dict], bool]:
     """按日期过滤列表条目，返回 (保留条目, 是否应停止翻页)。
 
     列表按日期倒序排列：
         - 日期 > end_date：跳过
         - 日期 < start_date：跳过并触发停止翻页
     """
-    keep: List[Dict] = []
+    keep: list[dict] = []
     should_stop = False
     for link in links:
         d = link["date"]
@@ -1148,9 +1248,9 @@ def _filter_links_by_date(
 
 def collect_measure_links(
     bureau: Bureau,
-    start_date: datetime.date,
-    end_date: datetime.date,
-) -> List[Dict]:
+    start_date: date,
+    end_date: date,
+) -> list[dict]:
     """爬取监管措施列表页，返回 [{link_url, title, date}, ...]。
 
     分页规则：
@@ -1171,7 +1271,7 @@ def collect_measure_links(
     )
 
     session = SessionManager()
-    results: List[Dict] = []
+    results: list[dict] = []
     page_index = 1
     should_stop = False
     consecutive_failures = 0
@@ -1204,7 +1304,9 @@ def collect_measure_links(
 
                 keep, stop = _filter_links_by_date(items, start_date, end_date)
                 results.extend(keep)
-                progress(f"  [{bureau.name_en}] 翻页: 第 {page_index} 页, 累计 {len(results)} 个案例")
+                progress(
+                    f"  [{bureau.name_en}] 翻页: 第 {page_index} 页, 累计 {len(results)} 个案例"
+                )
                 if stop:
                     progress(f"  [{bureau.name_en}] 遇到早于 {start_date} 的条目，停止翻页")
                     should_stop = True
@@ -1214,7 +1316,9 @@ def collect_measure_links(
             except Exception as e:
                 if retry < LIST_PAGE_RETRIES - 1:
                     wait = 3 * (retry + 1)
-                    logger.warning(f"  列表页请求失败 (重试 {retry + 1}/{LIST_PAGE_RETRIES}): {e}，{wait}秒后重试...")
+                    logger.warning(
+                        f"  列表页请求失败 (重试 {retry + 1}/{LIST_PAGE_RETRIES}): {e}，{wait}秒后重试..."
+                    )
                     time.sleep(wait)
                 else:
                     logger.error(f"  列表页处理出错 (已重试{LIST_PAGE_RETRIES}次): {e}")
@@ -1224,7 +1328,9 @@ def collect_measure_links(
 
         if not page_ok:
             consecutive_failures += 1
-            logger.warning(f"  第 {page_index} 页跳过 (连续失败 {consecutive_failures}/{MAX_CONSECUTIVE_PAGE_FAILURES})")
+            logger.warning(
+                f"  第 {page_index} 页跳过 (连续失败 {consecutive_failures}/{MAX_CONSECUTIVE_PAGE_FAILURES})"
+            )
             if consecutive_failures >= MAX_CONSECUTIVE_PAGE_FAILURES:
                 logger.error(f"  连续 {MAX_CONSECUTIVE_PAGE_FAILURES} 页失败，停止翻页")
                 break
@@ -1263,12 +1369,12 @@ def _extract_channelid_from_url(url: str) -> str:
 
 def _try_searchlist_api(
     bureau: Bureau,
-    start_date: datetime.date,
-    end_date: datetime.date,
+    start_date: date,
+    end_date: date,
     max_pages: int = 50,
     penalty_url: str = "",
     channelid: str = "",
-) -> Optional[List[Dict]]:
+) -> list[dict] | None:
     """通过 searchList API 获取行政处罚案例列表。
 
     CSRC 官网的 common_list.shtml 页面通过 render.js 调用
@@ -1298,7 +1404,7 @@ def _try_searchlist_api(
     # 注意：CSRC 服务器会忽略 _pageSize 参数，实际每页固定返回 20 条。
     # 因此不能用 page * page_size >= total 判断是否取完，必须用实际返回条数。
     requested_page_size = 50
-    results: List[Dict] = []
+    results: list[dict] = []
     raw_collected = 0  # 服务器实际返回的条目累计数（未经日期过滤）
     stop_for_date = False
 
@@ -1382,9 +1488,9 @@ def _try_searchlist_api(
     return results if results else None
 
 
-def _try_penalty_api(bureau: Bureau, start_date: datetime.date,
-                     end_date: datetime.date,
-                     penalty_url: str = "") -> Optional[List[Dict]]:
+def _try_penalty_api(
+    bureau: Bureau, start_date: date, end_date: date, penalty_url: str = ""
+) -> list[dict] | None:
     """探测行政处罚后端 API，返回结果列表或 None。
 
     CSRC 行政处罚页通常为 AJAX 动态加载，这里尝试若干常见 API 路径。
@@ -1406,7 +1512,7 @@ def _try_penalty_api(bureau: Bureau, start_date: datetime.date,
     base_path = parsed.path.rsplit("/", 1)[0]  # 去掉 zfxxgk_zdgk.shtml
 
     session = SessionManager()
-    candidates: List[str] = []
+    candidates: list[str] = []
 
     # 候选 1：在 penalty_url 同目录下尝试 list.do / query.do
     for ep in ["list.do", "query.do", "getList.do", "list.json"]:
@@ -1423,11 +1529,13 @@ def _try_penalty_api(bureau: Bureau, start_date: datetime.date,
             try:
                 params = {"channelid": channelid, "page": 0, "size": 50}
                 if method == "GET":
-                    resp = session.get(api_url, params=params,
-                                       headers={"X-Requested-With": "XMLHttpRequest"})
+                    resp = session.get(
+                        api_url, params=params, headers={"X-Requested-With": "XMLHttpRequest"}
+                    )
                 else:
-                    resp = session.post(api_url, json=params,
-                                        headers={"X-Requested-With": "XMLHttpRequest"})
+                    resp = session.post(
+                        api_url, json=params, headers={"X-Requested-With": "XMLHttpRequest"}
+                    )
                 if resp.status_code != 200:
                     continue
                 ctype = resp.headers.get("Content-Type", "")
@@ -1444,18 +1552,11 @@ def _try_penalty_api(bureau: Bureau, start_date: datetime.date,
     return None
 
 
-def _parse_penalty_api_response(data: Dict, start_date: datetime.date,
-                                end_date: datetime.date) -> List[Dict]:
+def _parse_penalty_api_response(data: dict, start_date: date, end_date: date) -> list[dict]:
     """解析行政处罚 API 返回的 JSON，提取案例条目。"""
-    results: List[Dict] = []
+    results: list[dict] = []
     # 兼容多种字段命名
-    items = (
-        data.get("content")
-        or data.get("list")
-        or data.get("data")
-        or data.get("rows")
-        or []
-    )
+    items = data.get("content") or data.get("list") or data.get("data") or data.get("rows") or []
     if not isinstance(items, list):
         return results
 
@@ -1487,9 +1588,9 @@ def _parse_penalty_api_response(data: Dict, start_date: datetime.date,
 
 def collect_penalty_links(
     bureau: Bureau,
-    start_date: datetime.date,
-    end_date: datetime.date,
-) -> List[Dict]:
+    start_date: date,
+    end_date: date,
+) -> list[dict]:
     """爬取行政处罚列表页。
 
     优先尝试 HTML 解析；若 HTML 无列表数据（AJAX 动态加载），探测后端 API；
@@ -1499,7 +1600,7 @@ def collect_penalty_links(
     penalty_url = bureau.penalty_url
     if not penalty_url:
         try:
-            penalty_url = discover_penalty_url(bureau)
+            penalty_url = discover_penalty_url(bureau) or ""
         except Exception as e:
             logger.warning(f"[{bureau.name_en}] 行政处罚 URL 自动发现失败: {e}")
     if not penalty_url:
@@ -1507,15 +1608,13 @@ def collect_penalty_links(
         return []
 
     # 提取 channelid，供后续 searchList API 使用
-    discovered_channelid = (
-        bureau.penalty_channelid or _extract_channelid_from_url(penalty_url)
-    )
+    discovered_channelid = bureau.penalty_channelid or _extract_channelid_from_url(penalty_url)
 
     # 行政处罚分页 URL 模板：zfxxgk_zdgk_{N}.shtml（与监管措施同理）
     page_url_tpl = re.sub(r"zfxxgk_zdgk\.shtml", "zfxxgk_zdgk_{N}.shtml", penalty_url)
 
     session = SessionManager()
-    results: List[Dict] = []
+    results: list[dict] = []
     page_index = 1
     should_stop = False
     consecutive_failures = 0
@@ -1545,7 +1644,9 @@ def collect_penalty_links(
                 if items:
                     keep, stop = _filter_links_by_date(items, start_date, end_date)
                     results.extend(keep)
-                    progress(f"  [{bureau.name_en}] 翻页: 第 {page_index} 页, 累计 {len(results)} 个案例")
+                    progress(
+                        f"  [{bureau.name_en}] 翻页: 第 {page_index} 页, 累计 {len(results)} 个案例"
+                    )
                     if stop:
                         should_stop = True
                     page_ok = True
@@ -1556,14 +1657,22 @@ def collect_penalty_links(
                     progress(f"  [{bureau.name_en}] HTML 无列表项，尝试 searchList API...")
                     # 优先使用 searchList API（CSRC 官网 render.js 调用的接口）
                     api_items = _try_searchlist_api(
-                        bureau, start_date, end_date,
-                        penalty_url=penalty_url, channelid=discovered_channelid,
+                        bureau,
+                        start_date,
+                        end_date,
+                        penalty_url=penalty_url,
+                        channelid=discovered_channelid,
                     )
                     if not api_items:
                         # 退化到旧的 list.do 探测
-                        progress(f"  [{bureau.name_en}] searchList API 无结果，尝试 list.do 探测...")
+                        progress(
+                            f"  [{bureau.name_en}] searchList API 无结果，尝试 list.do 探测..."
+                        )
                         api_items = _try_penalty_api(
-                            bureau, start_date, end_date, penalty_url=penalty_url,
+                            bureau,
+                            start_date,
+                            end_date,
+                            penalty_url=penalty_url,
                         )
                     if api_items:
                         results.extend(api_items)
@@ -1572,7 +1681,7 @@ def collect_penalty_links(
                         should_stop = True  # API 通常一次性返回，不再翻页
                         break
                     else:
-                        logger.warning(f"  行政处罚 API 探测失败，停止该来源抓取")
+                        logger.warning("  行政处罚 API 探测失败，停止该来源抓取")
                         should_stop = True
                         page_ok = True
                         break
@@ -1586,7 +1695,9 @@ def collect_penalty_links(
             except Exception as e:
                 if retry < LIST_PAGE_RETRIES - 1:
                     wait = 3 * (retry + 1)
-                    logger.warning(f"  列表页请求失败 (重试 {retry + 1}/{LIST_PAGE_RETRIES}): {e}，{wait}秒后重试...")
+                    logger.warning(
+                        f"  列表页请求失败 (重试 {retry + 1}/{LIST_PAGE_RETRIES}): {e}，{wait}秒后重试..."
+                    )
                     time.sleep(wait)
                 else:
                     logger.error(f"  列表页处理出错 (已重试{LIST_PAGE_RETRIES}次): {e}")
@@ -1596,7 +1707,9 @@ def collect_penalty_links(
 
         if not page_ok:
             consecutive_failures += 1
-            logger.warning(f"  第 {page_index} 页跳过 (连续失败 {consecutive_failures}/{MAX_CONSECUTIVE_PAGE_FAILURES})")
+            logger.warning(
+                f"  第 {page_index} 页跳过 (连续失败 {consecutive_failures}/{MAX_CONSECUTIVE_PAGE_FAILURES})"
+            )
             if consecutive_failures >= MAX_CONSECUTIVE_PAGE_FAILURES:
                 logger.error(f"  连续 {MAX_CONSECUTIVE_PAGE_FAILURES} 页失败，停止翻页")
                 break
@@ -1616,16 +1729,17 @@ def collect_penalty_links(
 
 # ──────────────────────────── 批量抓取主流程 ────────────────────────────
 
+
 def fetch_source(
     bureau: Bureau,
     case_type: str,
-    start_date: datetime.date,
-    end_date: datetime.date,
+    start_date: date,
+    end_date: date,
     output_dir: Path,
     index: CaseIndex,
     concurrency: int = DEFAULT_CONCURRENCY,
-    on_progress: Optional[Callable[[int, int, str], None]] = None,
-) -> Tuple[int, int, int]:
+    on_progress: Callable[[int, int, str], None] | None = None,
+) -> tuple[int, int, int]:
     """抓取单个来源（局 × 类型）的全部案例。
 
     流程：列表爬取 → 标题预过滤 → 详情处理（含内容确认）→ 索引更新。
@@ -1645,8 +1759,10 @@ def fetch_source(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     stats = index.get_stats(source_key)
-    logger.info(f"  索引状态: 总计 {stats['total']}, 已完成 {stats['done']}, "
-                f"待处理 {stats['pending']}, 失败 {stats['failed']}, 跳过 {stats['skipped_not_fund']}")
+    logger.info(
+        f"  索引状态: 总计 {stats['total']}, 已完成 {stats['done']}, "
+        f"待处理 {stats['pending']}, 失败 {stats['failed']}, 跳过 {stats['skipped_not_fund']}"
+    )
 
     # 1) 刷新列表页
     logger.info("  从官网爬取案例列表 (列表页成本低，每次都刷新以确保完整性)...")
@@ -1665,7 +1781,7 @@ def fetch_source(
 
     # 2) 标题预过滤：明确非基金的直接标记 skipped_not_fund
     pending_links = index.get_source_links(source_key)
-    to_process: List[Dict] = []
+    to_process: list[dict] = []
     for item in pending_links:
         status = item.get("status", "pending")
         if status in ("pending", "failed"):
@@ -1693,7 +1809,7 @@ def fetch_source(
     fail = 0
     skipped = 0
 
-    def _process_one(idx: int, link_info: Dict) -> Tuple[str, str, Optional[CaseData], str]:
+    def _process_one(idx: int, link_info: dict) -> tuple[str, str, CaseData | None, str]:
         """单个案例处理 worker。
 
         Returns:
@@ -1704,13 +1820,13 @@ def fetch_source(
         raw_title = link_info["title"]
         item_date_str = link_info["date"]
         try:
-            item_date = datetime.strptime(item_date_str, "%Y-%m-%d").date()
+            datetime.strptime(item_date_str, "%Y-%m-%d").date()
         except (ValueError, TypeError):
             item_date_str = datetime.now().date().isoformat()
 
         # 标题是否已明确基金（决定 process_case 是否跳过内容确认）
         title_verdict = is_fund_by_title(raw_title)
-        skip_fund_check = (title_verdict is True)
+        skip_fund_check = title_verdict is True
 
         try:
             case = process_case(
@@ -1732,8 +1848,7 @@ def fetch_source(
 
     total = len(to_process)
 
-    def _handle_result(status: str, link_url: str, error: str,
-                       counts: Dict[str, int]) -> None:
+    def _handle_result(status: str, link_url: str, error: str, counts: dict[str, int]) -> None:
         """根据 worker 返回状态更新索引与计数。"""
         if status == "success":
             counts["success"] += 1
@@ -1768,8 +1883,7 @@ def fetch_source(
         # 并发模式：ThreadPoolExecutor 处理详情页
         counts = {"success": 0, "fail": 0, "skipped": 0}
         completed = 0
-        with ThreadPoolExecutor(max_workers=concurrency,
-                                thread_name_prefix="csrc") as executor:
+        with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="csrc") as executor:
             futures = {
                 executor.submit(_process_one, i, link_info): link_info
                 for i, link_info in enumerate(to_process, 1)
@@ -1786,21 +1900,26 @@ def fetch_source(
                 if on_progress:
                     on_progress(completed, total, futures[future].get("title", ""))
                 if completed % 20 == 0 or completed == total:
-                    progress(f"  进度: {completed}/{total} "
-                             f"(成功 {counts['success']}, 失败 {counts['fail']}, "
-                             f"跳过 {counts['skipped']})")
+                    progress(
+                        f"  进度: {completed}/{total} "
+                        f"(成功 {counts['success']}, 失败 {counts['fail']}, "
+                        f"跳过 {counts['skipped']})"
+                    )
         success = counts["success"]
         fail = counts["fail"]
         skipped = counts["skipped"]
 
     final_stats = index.get_stats(source_key)
-    logger.info(f"  {bureau.name_cn}/{CASE_TYPE_CN[case_type]}: "
-                f"本次成功 {success}, 失败 {fail}, 跳过 {skipped}")
+    logger.info(
+        f"  {bureau.name_cn}/{CASE_TYPE_CN[case_type]}: "
+        f"本次成功 {success}, 失败 {fail}, 跳过 {skipped}"
+    )
     logger.info(f"  索引总计: {final_stats['done']} done / {final_stats['total']} total")
     return success, fail, skipped
 
 
 # ──────────────────────────── 对外抓取 API ────────────────────────────
+
 
 @dataclass
 class FetchResult:
@@ -1810,13 +1929,13 @@ class FetchResult:
     success: int = 0
     failed: int = 0
     skipped: int = 0
-    detail: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    detail: dict[str, dict[str, int]] = field(default_factory=dict)
 
     @property
     def total(self) -> int:
         return self.success + self.failed + self.skipped
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "dataset": self.dataset,
             "success": self.success,
@@ -1827,24 +1946,24 @@ class FetchResult:
         }
 
 
-def available_bureaus() -> List[Dict[str, str]]:
+def available_bureaus() -> list[dict[str, str]]:
     """返回全部来源（会本部 + 36 家派出机构）的中英文标识，供界面下拉选择。"""
     return [{"name_en": item.name_en, "name_cn": item.name_cn} for item in BUREAUS]
 
 
-def default_start_date() -> datetime.date:
+def default_start_date() -> date:
     """默认抓取起始日期（覆盖 2022 年以来的案例）。"""
     return DEFAULT_START_DATE
 
 
 def fetch(
-    start_date: Optional[datetime.date] = None,
-    end_date: Optional[datetime.date] = None,
-    bureaus: Optional[List[str]] = None,
-    case_types: Optional[List[str]] = None,
-    config: Optional[Config] = None,
-    concurrency: Optional[int] = None,
-    on_progress: Optional[Callable[[int, int, str], None]] = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
+    bureaus: list[str] | None = None,
+    case_types: list[str] | None = None,
+    config: Config | None = None,
+    concurrency: int | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> FetchResult:
     """抓取指定日期范围、指定来源与类型的 CSRC 案例。
 
@@ -1864,8 +1983,8 @@ def fetch(
     start_date = start_date or DEFAULT_START_DATE
     end_date = end_date or datetime.now().date()
 
-    selected_bureaus: List[Bureau] = []
-    for name in (bureaus or []):
+    selected_bureaus: list[Bureau] = []
+    for name in bureaus or []:
         item = get_bureau_by_name(name)
         if item is not None:
             selected_bureaus.append(item)
@@ -1878,7 +1997,9 @@ def fetch(
     if not selected_types:
         selected_types = [CASE_TYPE_PENALTY, CASE_TYPE_MEASURE]
 
-    workers = concurrency if concurrency is not None else cfg.concurrency("fetch", DEFAULT_CONCURRENCY)
+    workers = (
+        concurrency if concurrency is not None else cfg.concurrency("fetch", DEFAULT_CONCURRENCY)
+    )
     cases_root = cfg.data_root("csrc_cases")
     cases_root.mkdir(parents=True, exist_ok=True)
     index = CsrcIndex(cases_root)
@@ -1888,8 +2009,11 @@ def fetch(
     logger.info("=" * 20 + " CSRC 案例抓取 " + "=" * 20)
     logger.info(
         "日期范围: %s ~ %s | 来源 %d 个 | 类型: %s | 并发: %d",
-        start_date, end_date, len(selected_bureaus),
-        "、".join(CASE_TYPE_CN[item] for item in selected_types), workers,
+        start_date,
+        end_date,
+        len(selected_bureaus),
+        "、".join(CASE_TYPE_CN[item] for item in selected_types),
+        workers,
     )
 
     try:
@@ -1915,17 +2039,20 @@ def fetch(
 
     logger.info(
         "CSRC 抓取完成：成功 %d，失败 %d，跳过非基金 %d，耗时 %.1f 秒",
-        result.success, result.failed, result.skipped, time.time() - started,
+        result.success,
+        result.failed,
+        result.skipped,
+        time.time() - started,
     )
     return result
 
 
 def fetch_pending(
-    bureaus: Optional[List[str]] = None,
-    case_types: Optional[List[str]] = None,
-    config: Optional[Config] = None,
-    concurrency: Optional[int] = None,
-    on_progress: Optional[Callable[[int, int, str], None]] = None,
+    bureaus: list[str] | None = None,
+    case_types: list[str] | None = None,
+    config: Config | None = None,
+    concurrency: int | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> FetchResult:
     """断点续传：处理索引中全部 ``pending`` 与 ``failed`` 的案例。"""
     logger.info("断点续传模式：处理索引中未完成与失败的案例")
@@ -1944,8 +2071,8 @@ def fetch_single(
     url: str,
     bureau: str = "HQ",
     case_type: str = CASE_TYPE_PENALTY,
-    config: Optional[Config] = None,
-) -> Optional[CaseData]:
+    config: Config | None = None,
+) -> CaseData | None:
     """抓取单个案例 URL 并落库（视为已知基金相关，跳过内容确认）。"""
     cfg = config or get_config()
     source_dir = cfg.data_root("csrc_cases") / bureau / case_type

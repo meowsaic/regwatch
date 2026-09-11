@@ -20,10 +20,11 @@ from __future__ import annotations
 import threading
 import time
 import traceback
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 from .config import Config, get_config
 from .datamodels import AmacSummary, CsrcSummary
@@ -45,10 +46,10 @@ from .storage import (
 
 __all__ = [
     "INPUT_TRUNCATE",
-    "SummarizeResult",
     "CaseRef",
-    "scan_candidates",
+    "SummarizeResult",
     "extract_structured",
+    "scan_candidates",
     "summarize",
     "summarize_one",
 ]
@@ -56,7 +57,7 @@ __all__ = [
 logger = get_logger("summarize")
 
 #: 送入模型的正文截断长度（CSRC 行政处罚决定书更长）
-INPUT_TRUNCATE: Dict[str, int] = {DATASET_AMAC: 8000, DATASET_CSRC: 12000}
+INPUT_TRUNCATE: dict[str, int] = {DATASET_AMAC: 8000, DATASET_CSRC: 12000}
 
 MAX_RETRIES = 3
 MIN_INPUT_LEN = 50
@@ -95,7 +96,7 @@ class SummarizeResult:
     success: int = 0
     skipped: int = 0
     failed: int = 0
-    errors: List[Dict[str, str]] = field(default_factory=list)
+    errors: list[dict[str, str]] = field(default_factory=list)
 
     @property
     def handled(self) -> int:
@@ -109,7 +110,7 @@ class SummarizeResult:
         if len(self.errors) < MAX_REPORTED_ERRORS:
             self.errors.append({"case_id": case_id, "error": error})
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "dataset": self.dataset,
             "total": self.total,
@@ -123,7 +124,7 @@ class SummarizeResult:
 # ──────────────────────────── 候选扫描 ────────────────────────────
 
 
-def _dataset_roots(dataset: str, config: Optional[Config]) -> Tuple[Path, Path]:
+def _dataset_roots(dataset: str, config: Config | None) -> tuple[Path, Path]:
     if dataset == DATASET_AMAC:
         return amac_cases_dir(config), amac_summaries_dir(config)
     if dataset == DATASET_CSRC:
@@ -133,10 +134,10 @@ def _dataset_roots(dataset: str, config: Optional[Config]) -> Tuple[Path, Path]:
 
 def scan_candidates(
     dataset: str,
-    config: Optional[Config] = None,
+    config: Config | None = None,
     retry_failed: bool = True,
-    limit: Optional[int] = None,
-) -> List[CaseRef]:
+    limit: int | None = None,
+) -> list[CaseRef]:
     """扫描待处理案例，只读文件路径与索引状态，不载入正文。
 
     Args:
@@ -155,7 +156,7 @@ def scan_candidates(
         return []
 
     index = SummaryIndex(summaries_root)
-    refs: List[CaseRef] = []
+    refs: list[CaseRef] = []
     for path in sorted(cases_root.rglob("*.json")):
         if path.name.startswith("_"):
             continue
@@ -185,7 +186,7 @@ def scan_candidates(
 # ──────────────────────────── 单案例提取 ────────────────────────────
 
 
-def _build_messages(dataset: str, raw_text: str, case_type: str) -> List[Dict[str, str]]:
+def _build_messages(dataset: str, raw_text: str, case_type: str) -> list[dict[str, str]]:
     truncate = INPUT_TRUNCATE.get(dataset, 8000)
     text = raw_text[:truncate] if len(raw_text) > truncate else raw_text
     if dataset == DATASET_CSRC:
@@ -199,9 +200,9 @@ def extract_structured(
     raw_text: str,
     dataset: str,
     case_type: str = "",
-    client: Optional[LLMClient] = None,
-    config: Optional[Config] = None,
-) -> Tuple[Optional[Dict[str, Any]], str]:
+    client: LLMClient | None = None,
+    config: Config | None = None,
+) -> tuple[dict[str, Any] | None, str]:
     """调用大模型提取结构化字段。
 
     Returns:
@@ -229,7 +230,7 @@ def extract_structured(
         except LLMError as exc:
             last_error = str(exc)
             logger.warning("  [提取] 第 %d 次调用失败: %s", attempt, exc)
-        except Exception as exc:  # noqa: BLE001 - 保证单条失败不影响整批
+        except Exception as exc:
             last_error = f"{type(exc).__name__}: {exc}"
             logger.warning("  [提取] 第 %d 次异常: %s", attempt, exc)
 
@@ -241,7 +242,7 @@ def extract_structured(
     return None, last_error
 
 
-def _coerce_bool(value: Any) -> Optional[bool]:
+def _coerce_bool(value: Any) -> bool | None:
     """把模型返回的 true/false 兼容成 Python 布尔值；无法判断时返回 ``None``。"""
     if isinstance(value, bool):
         return value
@@ -264,9 +265,9 @@ def _summary_path(ref: CaseRef, summaries_root: Path) -> Path:
 
 def summarize_one(
     ref: CaseRef,
-    config: Optional[Config] = None,
-    index: Optional[SummaryIndex] = None,
-    client: Optional[LLMClient] = None,
+    config: Config | None = None,
+    index: SummaryIndex | None = None,
+    client: LLMClient | None = None,
 ) -> str:
     """处理单条案例，返回 ``"done"`` / ``"skipped"`` / ``"failed"``。"""
     cfg = config or get_config()
@@ -286,7 +287,11 @@ def summarize_one(
 
     case_type = ref.case_type or str(data.get("case_type", ""))
     extracted, last_error = extract_structured(
-        raw_text, ref.dataset, case_type, client=client, config=cfg,
+        raw_text,
+        ref.dataset,
+        case_type,
+        client=client,
+        config=cfg,
     )
     if extracted is None:
         message = last_error or "模型未能返回有效结构化 JSON"
@@ -298,7 +303,10 @@ def summarize_one(
     if ref.dataset == DATASET_CSRC:
         fund_related = _coerce_bool(extracted.get("fund_related"))
         if fund_related is False:
-            reason = str(extracted.get("fund_relation_reason", "") or "").strip() or "模型判定与基金业务无关"
+            reason = (
+                str(extracted.get("fund_relation_reason", "") or "").strip()
+                or "模型判定与基金业务无关"
+            )
             idx.mark_skipped(ref.case_id, reason)
             logger.info("  [跳过] %s | 非基金相关：%s", ref.case_id, reason)
             return "skipped"
@@ -370,11 +378,11 @@ def _now() -> str:
 
 def summarize(
     dataset: str,
-    config: Optional[Config] = None,
-    workers: Optional[int] = None,
+    config: Config | None = None,
+    workers: int | None = None,
     retry_failed: bool = True,
-    limit: Optional[int] = None,
-    on_progress: Optional[Callable[[int, int, str], None]] = None,
+    limit: int | None = None,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> SummarizeResult:
     """批量提取结构化摘要。
 
@@ -390,7 +398,9 @@ def summarize(
         :class:`SummarizeResult`。
     """
     cfg = config or get_config()
-    workers = max(1, int(workers if workers is not None else cfg.concurrency("summarize", DEFAULT_WORKERS)))
+    workers = max(
+        1, int(workers if workers is not None else cfg.concurrency("summarize", DEFAULT_WORKERS))
+    )
 
     refs = scan_candidates(dataset, cfg, retry_failed=retry_failed, limit=limit)
     result = SummarizeResult(dataset=dataset, total=len(refs))
@@ -401,7 +411,11 @@ def summarize(
     stats = index.get_stats()
     logger.info(
         "摘要索引状态：已完成 %d，已跳过 %d，失败 %d | 本次待处理 %d 条（并发 %d）",
-        stats["done"], stats["skipped"], stats["failed"], result.total, workers,
+        stats["done"],
+        stats["skipped"],
+        stats["failed"],
+        result.total,
+        workers,
     )
     if not refs:
         logger.info("没有待处理的案例")
@@ -411,12 +425,12 @@ def summarize(
     counter_lock = threading.Lock()
     completed = 0
 
-    def _worker(ref: CaseRef) -> Tuple[CaseRef, str, str]:
+    def _worker(ref: CaseRef) -> tuple[CaseRef, str, str]:
         status = "failed"
         error = ""
         try:
             status = summarize_one(ref, config=cfg, index=index, client=client)
-        except Exception as exc:  # noqa: BLE001 - 单条异常不中断整批
+        except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             logger.error("  处理异常 %s: %s", ref.case_id, error)
             logger.debug(traceback.format_exc())
@@ -451,13 +465,16 @@ def summarize(
             for future in as_completed(futures):
                 try:
                     ref_obj, status, error = future.result()
-                except Exception as exc:  # noqa: BLE001 - 兜底
+                except Exception as exc:
                     ref_obj, status, error = futures[future], "failed", str(exc)
                 _record(ref_obj, status, error)
 
     elapsed = time.time() - started
     logger.info(
         "摘要提取完成：成功 %d，跳过（非基金相关）%d，失败 %d，耗时 %.1f 秒",
-        result.success, result.skipped, result.failed, elapsed,
+        result.success,
+        result.skipped,
+        result.failed,
+        elapsed,
     )
     return result
