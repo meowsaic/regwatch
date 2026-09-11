@@ -18,6 +18,7 @@ import traceback
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from .datamodels import TaskRecord, TaskStatus
