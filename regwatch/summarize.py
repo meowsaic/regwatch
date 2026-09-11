@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple
 
 from .config import Config, get_config
+from .datamodels import AmacSummary, CsrcSummary
 from .llm import LLMClient, LLMError, get_llm, parse_json_response
 from .logutil import get_logger
 from .prompts import AMAC_EXTRACT_PROMPT, CSRC_EXTRACT_PROMPT
@@ -33,8 +34,6 @@ from .storage import (
     DATASET_AMAC,
     DATASET_CSRC,
     DATASETS,
-    AmacSummary,
-    CsrcSummary,
     SummaryIndex,
     amac_cases_dir,
     amac_summaries_dir,
@@ -202,17 +201,21 @@ def extract_structured(
     case_type: str = "",
     client: Optional[LLMClient] = None,
     config: Optional[Config] = None,
-) -> Optional[Dict[str, Any]]:
-    """调用大模型提取结构化字段，失败返回 ``None``。
+) -> Tuple[Optional[Dict[str, Any]], str]:
+    """调用大模型提取结构化字段。
 
-    最多重试 ``MAX_RETRIES`` 次；模型返回内容为空时自动回退到推理内容。
+    Returns:
+        ``(解析结果, 最后一次错误说明)``；成功时错误说明为空串，失败时结果为 ``None``。
+        最多重试 ``MAX_RETRIES`` 次；模型返回内容为空时自动回退到推理内容。
     """
     if not raw_text or len(raw_text) <= MIN_INPUT_LEN:
-        logger.warning("原文过短（%d 字），跳过提取", len(raw_text or ""))
-        return None
+        message = f"原文过短（{len(raw_text or '')} 字），无法提取"
+        logger.warning(message)
+        return None, message
 
     llm = client or get_llm(task="summarize", config=config)
     messages = _build_messages(dataset, raw_text, case_type)
+    last_error = ""
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -220,11 +223,14 @@ def extract_structured(
             result = llm.chat(messages, max_tokens=8000, temperature=0.1)
             payload = parse_json_response(result.best_text())
             if payload is not None:
-                return payload
+                return payload, ""
+            last_error = "模型响应中未包含可解析的 JSON 对象"
             logger.warning("  [提取] 第 %d 次未能从响应中解析出 JSON", attempt)
         except LLMError as exc:
+            last_error = str(exc)
             logger.warning("  [提取] 第 %d 次调用失败: %s", attempt, exc)
         except Exception as exc:  # noqa: BLE001 - 保证单条失败不影响整批
+            last_error = f"{type(exc).__name__}: {exc}"
             logger.warning("  [提取] 第 %d 次异常: %s", attempt, exc)
 
         if attempt < MAX_RETRIES:
@@ -232,7 +238,7 @@ def extract_structured(
             logger.info("  [提取] %d 秒后重试...", wait)
             time.sleep(wait)
 
-    return None
+    return None, last_error
 
 
 def _coerce_bool(value: Any) -> Optional[bool]:
@@ -279,10 +285,13 @@ def summarize_one(
         return "failed"
 
     case_type = ref.case_type or str(data.get("case_type", ""))
-    extracted = extract_structured(raw_text, ref.dataset, case_type, client=client, config=cfg)
+    extracted, last_error = extract_structured(
+        raw_text, ref.dataset, case_type, client=client, config=cfg,
+    )
     if extracted is None:
-        idx.mark_failed(ref.case_id, "模型未能返回有效结构化 JSON")
-        logger.warning("  [✗] %s | 提取失败", ref.case_id)
+        message = last_error or "模型未能返回有效结构化 JSON"
+        idx.mark_failed(ref.case_id, message)
+        logger.warning("  [✗] %s | 提取失败：%s", ref.case_id, message)
         return "failed"
 
     # CSRC：先做基金相关性精判，非基金相关不生成摘要文件
