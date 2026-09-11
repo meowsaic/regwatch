@@ -1,16 +1,32 @@
 ---
 feature: structure-modernize
-status: designed
+status: delivered
 updated: 2026-09-11
 branch: structure-modernize
-commits: cd45c60..HEAD
+commits: cd45c60..4137132
 ---
 
 # 仓库结构现代化重构
 
 ## Report
 
-（实现完成后填写）
+**What was built** — 仓库改为现代 Python src 布局：核心包与 Streamlit 网页端一并收入 `src/regwatch/`（含 `web/` 子包），去掉全部 `sys.path` 注入；`regwatch web` 通过包内 `__file__` 定位入口。运行时数据默认根迁到 `data/amac|csrc/{cases,summaries,reports}`，`PROJECT_ROOT` 改为向上查找 `pyproject.toml`。删除根与 AMAC/CSRC 下全部旧薄封装脚本与 `run_web.py`；`专项分析报告/` 归档至 `docs/archive/`。新增幂等迁移脚本 `scripts/migrate_layout.py`（支持 `--dry-run`；空目标先 rmdir 再 move，非空冲突不覆盖）。README / AGENTS / `.gitignore` / `config.example.json` 同步。
+
+**Verification** —
+- `uv run python -m unittest discover -s tests -t .` → PASS（147 tests, 3 skipped）
+- `uv run ruff check src tests scripts` → PASS
+- `uv run mypy` → PASS（0 errors, 19 files；web 按原基线排除）
+- `uv run regwatch --help` → PASS
+- `uv run python scripts/migrate_layout.py --dry-run` → PASS
+- 空目标目录迁移模拟：rmdir 后 move，无 `cases/cases` 嵌套
+- 独立评审 CRITICAL（空 dest 嵌套）已修复，复审 PASS
+
+**Journey log** —
+1. 环境阻止 `git worktree add`，沿用 `.worktrees/structure-modernize` 本地 clone 隔离。
+2. mypy 2.x 对 `packages=["regwatch"]` 报「Cannot read file」，改为 `files=["src/regwatch"]` + `explicit_package_bases`。
+3. web 收入 src 后 mypy 会扫视图并报历史类型噪声，按原质量门禁 `exclude` web。
+4. `shutil.move` 到已存在的空目录会嵌套子目录，迁移脚本必须先 `rmdir` 空 dest。
+5. Streamlit `st.Page("views/…")` 相对主脚本目录，包内 `app.py` 无需 `importlib.resources`。
 
 ## [S1] Problem
 
@@ -67,7 +83,7 @@ commits: cd45c60..HEAD
 
 - hatchling `packages = ["src/regwatch"]`（src 布局）。
 - 入口不变：`regwatch = "regwatch.cli:app"`。
-- `ruff.src = ["src", "tests"]`；mypy `packages = ["regwatch"]` 且 `mypy_path = "src"`。
+- `ruff.src = ["src", "tests"]`；mypy `files = ["src/regwatch"]`、`mypy_path = "src"`、`exclude = ["src/regwatch/web/"]`（web 视图保持原基线不强制类型）。
 - `uv sync` 可编辑安装后，`import regwatch` / `import regwatch.web` 均可用。
 
 ### S2.3 项目根解析
@@ -79,7 +95,7 @@ def _find_project_root(start: Path) -> Path:
     for candidate in (start, *start.parents):
         if (candidate / "pyproject.toml").is_file():
             return candidate
-    return start.parent  # 安装后的兜底：工作目录语义由 config 覆盖
+    return start.parent.parent if len(start.parents) >= 2 else start.parent
 ```
 
 `config.json` / `config.example.json` 仍相对 `PROJECT_ROOT` 解析。
@@ -101,9 +117,9 @@ def _find_project_root(start: Path) -> Path:
 
 ### S2.5 web 收编
 
-- `web/` → `src/regwatch/web/`，模块内 import 改为 `regwatch.web.components` / `regwatch.web.views`（若 Streamlit page 仍需文件路径，用包资源定位）。
+- `web/` → `src/regwatch/web/`，模块内 import 改为 `regwatch.web.components` / `regwatch.web.views`。
 - 删除各文件的 `sys.path` 注入。
-- `cli.web` 通过 `importlib` / `regwatch.web.__file__` 定位 `app.py`。
+- `cli.web` 通过 `regwatch.web.__file__` 定位 `app.py`。
 - 删除根目录 `run_web.py`。
 - Streamlit 配置移到项目根 `.streamlit/config.toml`（Streamlit 从 cwd 发现）。
 
@@ -127,10 +143,11 @@ def _find_project_root(start: Path) -> Path:
 `scripts/migrate_layout.py`（幂等、可 `--dry-run`）：
 
 1. 若存在旧 `AMAC/cases` 等且目标不存在 → `shutil.move` 到 `data/amac/cases`。
-2. 若目标已存在且源也存在 → 报告冲突，不覆盖（除非 `--force-merge` 不在首版，直接 fail 并提示人工处理）。
-3. 更新 `config.json` 的 `data_roots` 旧相对路径为新默认。
-4. 创建空的 `data/amac/*`、`data/csrc/*` 骨架。
-5. 不触碰 `AMAC_Discipline_PDFs/`。
+2. 若目标存在且为**空目录** → 先 `rmdir` 再 move（避免嵌套成 `…/cases/cases`）。
+3. 若目标已存在且非空 → 报告冲突，非零退出，不覆盖。
+4. 更新 `config.json` 的 `data_roots` 旧相对路径为新默认。
+5. 创建空的 `data/amac/*`、`data/csrc/*` 骨架。
+6. 不触碰 `AMAC_Discipline_PDFs/`。
 
 ### S2.8 文档与 ignore
 
@@ -149,8 +166,8 @@ def _find_project_root(start: Path) -> Path:
 ```powershell
 uv sync --extra web --extra dev
 uv run python -m unittest discover -s tests -t .
-uv run ruff check src tests
-uv run mypy regwatch
+uv run ruff check src tests scripts
+uv run mypy
 uv run regwatch --help
 uv run python scripts/migrate_layout.py --dry-run
 ```
@@ -166,9 +183,9 @@ uv run python scripts/migrate_layout.py --dry-run
 
 ## Tasks
 
-- [ ] T1: 建立 src 布局并迁移 regwatch/web 包 — acceptance: 包在 `src/regwatch`，`uv sync` 后 `import regwatch.web` 可用，入口脚本路径正确 (covers: S2.1, S2.2, S2.5)
-- [ ] T2: 修正 PROJECT_ROOT 与默认 data_roots / example 配置 — acceptance: 默认根为 `data/amac|csrc/...`；单测更新后通过 (covers: S2.3, S2.4)
-- [ ] T3: 删除旧脚本并归档专项分析报告 — acceptance: 薄封装脚本不在树中；`docs/archive/专项分析报告/` 存在 (covers: S2.6)
-- [ ] T4: 编写 scripts/migrate_layout.py — acceptance: `--dry-run` 可运行；真实迁移幂等；冲突不覆盖 (covers: S2.7)
-- [ ] T5: 更新 .gitignore / README / AGENTS 与 web 测试路径 — acceptance: 文档与 ignore 一致；AppTest 可渲染 (covers: S2.8, S2.9)
-- [ ] T6: 全量验证 + 独立评审 — acceptance: unittest/ruff/mypy/cli 全绿；评审无 CRITICAL (covers: S2.10; depends: T1–T5)
+- [x] T1: 建立 src 布局并迁移 regwatch/web 包 — acceptance: 包在 `src/regwatch`，`uv sync` 后 `import regwatch.web` 可用，入口脚本路径正确 (covers: S2.1, S2.2, S2.5)
+- [x] T2: 修正 PROJECT_ROOT 与默认 data_roots / example 配置 — acceptance: 默认根为 `data/amac|csrc/...`；单测更新后通过 (covers: S2.3, S2.4)
+- [x] T3: 删除旧脚本并归档专项分析报告 — acceptance: 薄封装脚本不在树中；`docs/archive/专项分析报告/` 存在 (covers: S2.6)
+- [x] T4: 编写 scripts/migrate_layout.py — acceptance: `--dry-run` 可运行；真实迁移幂等；冲突不覆盖；空 dest 不嵌套 (covers: S2.7)
+- [x] T5: 更新 .gitignore / README / AGENTS 与 web 测试路径 — acceptance: 文档与 ignore 一致；AppTest 可渲染 (covers: S2.8, S2.9)
+- [x] T6: 全量验证 + 独立评审 — acceptance: unittest/ruff/mypy/cli 全绿；评审 CRITICAL 已修 (covers: S2.10; depends: T1–T5)
