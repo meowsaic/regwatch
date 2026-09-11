@@ -805,6 +805,14 @@ def invalidate_catalog(dataset: Optional[str] = None) -> None:
             _catalog_cache.pop(dataset, None)
 
 
+def catalog_signature(
+    datasets: Sequence[str] = DATASETS,
+    config: Optional[Config] = None,
+) -> Tuple[Any, ...]:
+    """返回若干数据集的变更信号，可作外部缓存（如 Streamlit）的缓存键。"""
+    return tuple(_catalog_signature(dataset, config) for dataset in datasets)
+
+
 # ──────────────────────────── 清单构建 ────────────────────────────
 
 
