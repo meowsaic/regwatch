@@ -1,0 +1,60 @@
+# ──────────────────────── 案例数据（体积巨大，不入库） ────────────────────────
+# 抓取产出与结构化摘要，约 1.6GB，全部排除在版本库之外
+AMAC/cases/
+AMAC/summaries/
+AMAC/reports/
+CSRC/cases/
+CSRC/summaries/
+
+# AMAC 月度公告 PDF 下载目录
+AMAC_Discipline_PDFs/
+
+# 专项分析报告中的数据导出（案例 JSON）
+专项分析报告/**/*.json
+
+# ──────────────────────── 报告与二进制产物 ────────────────────────
+*.pdf
+*.docx
+*.doc
+*.xlsx
+*.xls
+*.pptx
+*.zip
+*.7z
+
+# ──────────────────────── Python ────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ──────────────────────── 本地配置（含密钥，仅 config.example.json 入库） ────────────────────────
+config.json
+config.local.json
+*.local.json
+.streamlit/secrets.toml
+
+# ──────────────────────── 运行时产物 ────────────────────────
+logs/
+*.log
+.cache/
+tmp/
+.temp/
+run/
+*.pid
+
+# ──────────────────────── IDE / 工具 ────────────────────────
+.trae/
+.vscode/
+.idea/
+*.swp
+
+# ──────────────────────── 系统 ────────────────────────
+Thumbs.db
+Desktop.ini
+.DS_Store
