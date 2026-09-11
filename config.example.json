@@ -11,7 +11,8 @@
     "amac_summaries": "AMAC/summaries",
     "amac_reports": "AMAC/reports",
     "csrc_cases": "CSRC/cases",
-    "csrc_summaries": "CSRC/summaries"
+    "csrc_summaries": "CSRC/summaries",
+    "csrc_reports": "CSRC/reports"
   },
   "concurrency": {
     "fetch": 8,

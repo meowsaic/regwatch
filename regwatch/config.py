@@ -52,6 +52,7 @@ DEFAULT_DATA_ROOTS: Dict[str, str] = {
     "amac_reports": "AMAC/reports",
     "csrc_cases": "CSRC/cases",
     "csrc_summaries": "CSRC/summaries",
+    "csrc_reports": "CSRC/reports",
 }
 
 DATA_ROOT_LABELS: Dict[str, str] = {
@@ -60,6 +61,7 @@ DATA_ROOT_LABELS: Dict[str, str] = {
     "amac_reports": "AMAC 报告产物",
     "csrc_cases": "CSRC 案例原文",
     "csrc_summaries": "CSRC 结构化摘要",
+    "csrc_reports": "CSRC 报告产物",
 }
 
 DEFAULT_CONCURRENCY: Dict[str, int] = {"fetch": 8, "summarize": 5}
