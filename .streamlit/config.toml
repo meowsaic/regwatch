@@ -1,4 +1,4 @@
-# Streamlit 主题与行为配置（位于 web/.streamlit/）
+# Streamlit 主题与行为配置（项目根 .streamlit/）
 
 [theme]
 base = "light"

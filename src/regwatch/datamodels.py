@@ -125,7 +125,7 @@ class ModelProfile(_Record):
 
 @dataclass
 class AmacCase(_Record):
-    """中基协纪律处分案例原文（对应 AMAC/cases/{institution|personnel}/*.json）。"""
+    """中基协纪律处分案例原文（对应 data/amac/cases/{institution|personnel}/*.json）。"""
 
     case_id: str = ""
     source_url: str = ""
@@ -153,7 +153,7 @@ class AmacCase(_Record):
 
 @dataclass
 class AmacSummary(_Record):
-    """中基协纪律处分结构化摘要（对应 AMAC/summaries/{case_id}_summary.json）。"""
+    """中基协纪律处分结构化摘要（对应 data/amac/summaries/{case_id}_summary.json）。"""
 
     case_id: str = ""
     source_url: str = ""
@@ -179,7 +179,7 @@ class AmacSummary(_Record):
 
 @dataclass
 class CsrcCase(_Record):
-    """证监会案例原文（对应 CSRC/cases/{Bureau}/{measure|penalty}/*.json）。"""
+    """证监会案例原文（对应 data/csrc/cases/{Bureau}/{measure|penalty}/*.json）。"""
 
     case_id: str = ""
     source_url: str = ""
@@ -204,7 +204,7 @@ class CsrcCase(_Record):
 
 @dataclass
 class CsrcSummary(_Record):
-    """证监会案例结构化摘要（对应 CSRC/summaries/{Bureau}/{case_type}/*_summary.json）。
+    """证监会案例结构化摘要（对应 data/csrc/summaries/{Bureau}/{case_type}/*_summary.json）。
 
     注意：磁盘上的 CSRC summary **不包含** ``raw_text``，正文需回 ``cases`` 目录读取。
     """

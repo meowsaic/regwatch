@@ -71,9 +71,16 @@ def migrate_data(dry_run: bool) -> list[str]:
             if not dry_run:
                 dst.mkdir(parents=True, exist_ok=True)
             continue
-        if _dir_has_entries(dst):
-            notes.append(f"CONFLICT {src_rel} → {dst_rel}：目标已存在且非空，请人工合并")
-            raise SystemExit(1)
+        if dst.exists():
+            if _dir_has_entries(dst):
+                notes.append(f"CONFLICT {src_rel} → {dst_rel}：目标已存在且非空，请人工合并")
+                raise SystemExit(1)
+            # 目标是空目录：先删掉，避免 shutil.move 把源目录嵌套进去
+            if dry_run:
+                notes.append(f"rmdir {dst_rel}（空目录）后 move {src_rel}")
+                continue
+            dst.rmdir()
+            notes.append(f"rmdir {dst_rel}（空目录）")
         if dry_run:
             notes.append(f"move  {src_rel} → {dst_rel}")
             continue

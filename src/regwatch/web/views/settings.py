@@ -306,5 +306,5 @@ with col_roots:
         st.markdown(f"`{key}` → `{path}` {mark}")
     st.caption(
         "如需调整目录，请编辑 config.json 中的 data_roots 字段；"
-        "案例数据默认位于 AMAC/ 与 CSRC/ 子目录。"
+        "案例数据默认位于 data/amac 与 data/csrc 子目录。"
     )
