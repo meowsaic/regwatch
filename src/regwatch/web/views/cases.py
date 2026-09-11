@@ -3,21 +3,13 @@
 from __future__ import annotations
 
 import datetime as dt
-import sys
-from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-_HERE = Path(__file__).resolve()
-for _path in (str(_HERE.parents[2]), str(_HERE.parents[1])):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
-
 from regwatch.storage import CSRC_CASE_TYPE_LABELS
-
-from components import ui
-from components.data import (
+from regwatch.web.components import ui
+from regwatch.web.components.data import (
     clamp_page,
     filter_case_dicts,
     load_case_payload,

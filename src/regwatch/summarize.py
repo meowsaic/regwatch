@@ -3,8 +3,8 @@
 对 AMAC 与 CSRC 两套案例原文调用大模型，提取违规类型、处罚措施、涉及基金、
 法律依据等结构化字段，并写入各自的摘要目录：
 
-- AMAC：``AMAC/summaries/{case_id}_summary.json``（扁平）
-- CSRC：``CSRC/summaries/{Bureau}/{case_type}/{case_id}_summary.json``
+- AMAC：``data/amac/summaries/{case_id}_summary.json``（扁平）
+- CSRC：``data/csrc/summaries/{Bureau}/{case_type}/{case_id}_summary.json``
 
 要点：
 

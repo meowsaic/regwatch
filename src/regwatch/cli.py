@@ -27,7 +27,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from .config import PROJECT_ROOT, TASK_KINDS, TASK_LABELS, ConfigError, get_config
+from .config import TASK_KINDS, TASK_LABELS, ConfigError, get_config
 from .jobs import JobError
 from .llm import test_profile
 from .logutil import configure_logging
@@ -444,7 +444,9 @@ def web(
     host: str = typer.Option("localhost", "--host", help="监听地址"),
 ) -> None:
     """启动 Streamlit 网页界面。"""
-    app_path = PROJECT_ROOT / "web" / "app.py"
+    from regwatch import web as web_pkg
+
+    app_path = Path(web_pkg.__file__).resolve().parent / "app.py"
     if not app_path.exists():
         console.print(f"[red]未找到网页入口：{app_path}[/red]")
         raise typer.Exit(code=2)

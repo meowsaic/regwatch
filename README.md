@@ -29,7 +29,6 @@ uv run regwatch config show
 
 # 3. 启动网页界面
 uv run regwatch web --port 8501
-# 或：python run_web.py
 ```
 
 打开浏览器访问 http://localhost:8501 ，在「模型与配置」页填写：
@@ -85,8 +84,8 @@ python -m regwatch.cli config set-model --task summarize --model deepseek
 ## 目录结构
 
 ```
-e:/Desktop/codes/
-├── regwatch/                      # 核心 Python 包
+.
+├── src/regwatch/                  # 可安装核心包（src 布局）
 │   ├── config.py                  #   配置管理（数据路径 / 模型条目 / 任务绑定 / 并发）
 │   ├── llm.py                     #   统一 OpenAI 兼容客户端（参数自动降级、连通性测试）
 │   ├── datamodels.py              #   案例与摘要数据模型（与磁盘字段严格一致）
@@ -97,24 +96,28 @@ e:/Desktop/codes/
 │   ├── analyze.py / report.py     #   统计聚合与报告渲染（md / html / json）
 │   ├── jobs.py                    #   后台任务编排（线程、进度、取消、日志分流）
 │   ├── cli.py                     #   统一命令行入口
-│   └── sources/                   #   采集子包（amac / csrc / amac_monthly / csrc_bureaus）
-├── web/                           # Streamlit 网页端
-│   ├── app.py                     #   入口与导航
-│   ├── views/                     #   五个页面
-│   └── components/                #   主题、指标卡与图表组件
-├── AMAC/  CSRC/                   # 数据目录（cases / summaries / reports 不入库）
-├── 专项分析报告/                    # 历史专题分析产物（保留参考）
+│   ├── sources/                   #   采集子包（amac / csrc / amac_monthly / csrc_bureaus）
+│   └── web/                       #   Streamlit 网页端（app / views / components）
+├── data/                          # 运行时数据（gitignore，不入库）
+│   ├── amac/{cases,summaries,reports}/
+│   └── csrc/{cases,summaries,reports}/
+├── docs/
+│   ├── compose/spec/              # Compose 功能规格
+│   └── archive/专项分析报告/        # 历史专题分析产物（归档）
+├── scripts/migrate_layout.py      # 旧 AMAC/CSRC 根目录 → data/ 一次性迁移
 ├── tests/                         # 纯本地单元测试 + AppTest 网页冒烟测试
+├── .streamlit/config.toml         # Streamlit 项目配置
 ├── config.example.json            # 配置样例（入库）
 ├── config.json                    # 本地配置（含密钥，不入库）
-├── run_web.py                     # 网页一键启动
-└── AMAC/*.py、CSRC/*.py 等旧脚本     # 薄封装，仅转发到 regwatch 包
+└── AMAC_Discipline_PDFs/          # 月度公告 PDF（本地，待外迁，不入库）
 ```
 
 ## 数据与版本管理
 
-- 案例正文与摘要在 `AMAC/cases`、`AMAC/summaries`、`CSRC/cases`、`CSRC/summaries`，
-  由 `.gitignore` 排除，**不会进入版本库**；数据目录可整体移动，只需改 `config.json` 的 `data_roots`。
+- 案例正文与摘要在 `data/amac/*`、`data/csrc/*`，由 `.gitignore` 排除，**不会进入版本库**；
+  数据目录可整体移动，只需改 `config.json` 的 `data_roots`。
+- 从旧布局迁移：`uv run python scripts/migrate_layout.py --dry-run` 确认后去掉 dry-run。
+- `AMAC_Discipline_PDFs/` 为历史 PDF 归档，默认仍在项目根，请自行外迁到仓库外。
 - 索引文件（`_index.json`、`_summary_index.json`）由脚本维护，是断点续传与增量更新的事实来源。
 - 提交历史保持小步快照，出问题可 `git log --oneline` + `git revert` / `git checkout <commit>` 回滚。
 
@@ -139,9 +142,9 @@ e:/Desktop/codes/
 ```powershell
 uv run python -m unittest discover -s tests -t .   # 全量单测（不发网络请求）
 uv run python -m unittest tests.test_storage -v    # 单模块
-uv run ruff check regwatch tests                   # 静态检查
-uv run ruff format regwatch tests                  # 格式化
-uv run mypy regwatch                               # 类型检查（核心包）
+uv run ruff check src tests                        # 静态检查
+uv run ruff format src tests                       # 格式化
+uv run mypy regwatch                               # 类型检查（核心包，mypy_path=src）
 
 $env:REGWATCH_LIVE_TEST = "1"; uv run python -m unittest tests.test_live -v   # 可选实网测试
 ```

@@ -1,15 +1,19 @@
 # ──────────────────────── 案例数据（体积巨大，不入库） ────────────────────────
-# 抓取产出与结构化摘要，约 1.6GB，全部排除在版本库之外
+# 运行时数据统一在 data/ 下（cases / summaries / reports）
+data/
+# 兼容：迁移完成前的旧布局
 AMAC/cases/
 AMAC/summaries/
 AMAC/reports/
 CSRC/cases/
 CSRC/summaries/
+CSRC/reports/
 
-# AMAC 月度公告 PDF 下载目录
+# AMAC 月度公告 PDF 下载目录（待人工外迁）
 AMAC_Discipline_PDFs/
 
-# 专项分析报告中的数据导出（案例 JSON）
+# 归档专题中的数据导出（案例 JSON）
+docs/archive/**/*.json
 专项分析报告/**/*.json
 
 # ──────────────────────── 报告与二进制产物 ────────────────────────

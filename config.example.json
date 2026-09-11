@@ -7,12 +7,12 @@
     "API Key 也可通过环境变量提供，优先级高于本文件：REGWATCH_API_KEY_<模型ID大写>。"
   ],
   "data_roots": {
-    "amac_cases": "AMAC/cases",
-    "amac_summaries": "AMAC/summaries",
-    "amac_reports": "AMAC/reports",
-    "csrc_cases": "CSRC/cases",
-    "csrc_summaries": "CSRC/summaries",
-    "csrc_reports": "CSRC/reports"
+    "amac_cases": "data/amac/cases",
+    "amac_summaries": "data/amac/summaries",
+    "amac_reports": "data/amac/reports",
+    "csrc_cases": "data/csrc/cases",
+    "csrc_summaries": "data/csrc/summaries",
+    "csrc_reports": "data/csrc/reports"
   },
   "concurrency": {
     "fetch": 8,

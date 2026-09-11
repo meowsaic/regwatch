@@ -36,7 +36,7 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(value.is_absolute(), f"{key} 应解析为绝对路径")
         self.assertEqual(
             self.cfg.data_root("csrc_cases"),
-            PROJECT_ROOT / "CSRC" / "cases",
+            PROJECT_ROOT / "data" / "csrc" / "cases",
         )
 
     def test_relative_path_resolves_under_project_root(self) -> None:

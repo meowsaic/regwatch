@@ -6,15 +6,8 @@
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 
 import streamlit as st
-
-_HERE = Path(__file__).resolve()
-for _path in (str(_HERE.parents[2]), str(_HERE.parents[1])):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
 
 from regwatch.config import (
     TASK_KINDS,
@@ -24,8 +17,7 @@ from regwatch.config import (
 )
 from regwatch.datamodels import ModelProfile
 from regwatch.llm import reset_clients, test_profile
-
-from components import ui
+from regwatch.web.components import ui
 
 ui.apply_theme()
 
@@ -314,5 +306,5 @@ with col_roots:
         st.markdown(f"`{key}` → `{path}` {mark}")
     st.caption(
         "如需调整目录，请编辑 config.json 中的 data_roots 字段；"
-        "案例数据默认位于 AMAC/ 与 CSRC/ 子目录。"
+        "案例数据默认位于 data/amac 与 data/csrc 子目录。"
     )

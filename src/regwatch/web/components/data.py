@@ -9,17 +9,11 @@
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 import streamlit as st
-
-_WEB_DIR = Path(__file__).resolve().parents[1]
-_PROJECT_ROOT = _WEB_DIR.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
 
 from regwatch.analyze import analyze
 from regwatch.storage import (

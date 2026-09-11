@@ -2,27 +2,17 @@
 
 五个页面：总览看板、案例浏览、统计分析、任务中心、模型与配置。
 
-启动方式：``python -m regwatch.cli web`` 或 ``python run_web.py``。
+启动方式：``regwatch web`` 或 ``python -m regwatch.cli web``。
 """
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import streamlit as st
-
-_HERE = Path(__file__).resolve()
-_PROJECT_ROOT = _HERE.parent.parent
-for _path in (str(_PROJECT_ROOT), str(_HERE.parent)):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
 
 from regwatch.jobs import get_job_manager
 from regwatch.logutil import configure_logging
-
-from components import ui
-from components.data import clear_data_cache, load_stats
+from regwatch.web.components import ui
+from regwatch.web.components.data import clear_data_cache, load_stats
 
 st.set_page_config(
     page_title="regwatch · 基金监管案例看板",
