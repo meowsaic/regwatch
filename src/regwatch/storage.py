@@ -1,25 +1,25 @@
 """数据访问层：统一读写案例、摘要与索引。
 
-磁盘布局**保持与原脚本完全一致**，不做数据迁移：
+磁盘布局（默认相对项目根，可用 ``config.json`` 的 ``data_roots`` 覆盖）：
 
 AMAC::
 
-    AMAC/cases/
+    data/amac/cases/
         _index.json                 抓取索引
         _org_type_cache.json        机构类型缓存
         _org_type_manual.json       人工补全清单
         institution/{case_id}.json  scfjg（机构）
         personnel/{case_id}.json    scfry（人员）
-    AMAC/summaries/
+    data/amac/summaries/
         _summary_index.json
         {case_id}_summary.json      扁平结构
 
 CSRC::
 
-    CSRC/cases/
+    data/csrc/cases/
         _index.json
         {Bureau}/{measure|penalty}/{case_id}.json
-    CSRC/summaries/
+    data/csrc/summaries/
         _summary_index.json
         {Bureau}/{case_type}/{case_id}_summary.json
 

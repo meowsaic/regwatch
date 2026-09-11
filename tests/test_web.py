@@ -2,25 +2,20 @@
 
 from __future__ import annotations
 
-import sys
 import unittest
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-if str(PROJECT_ROOT / "web") not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT / "web"))
+from regwatch.web import components
+from regwatch.web.components.data import clamp_page
 
+WEB_DIR = Path(components.__file__).resolve().parents[1]
 PAGES = ("overview", "cases", "statistics", "jobs", "settings")
 
 
 class ClampPageTests(unittest.TestCase):
     def test_clamp_page_bounds(self):
-        from components.data import clamp_page
-
         self.assertEqual(clamp_page(None, 5), 1)
         self.assertEqual(clamp_page(0, 5), 1)
         self.assertEqual(clamp_page(3, 5), 3)
@@ -33,7 +28,7 @@ class WebAppTests(unittest.TestCase):
     """五个页面均应无异常渲染（基于真实数据）。"""
 
     def test_app_entry_renders(self):
-        at = AppTest.from_file(str(PROJECT_ROOT / "web" / "app.py"), default_timeout=300)
+        at = AppTest.from_file(str(WEB_DIR / "app.py"), default_timeout=300)
         at.run()
         self.assertEqual(len(at.exception), 0, "\n".join(e.message or "" for e in at.exception))
 
@@ -41,7 +36,7 @@ class WebAppTests(unittest.TestCase):
         for name in PAGES:
             with self.subTest(page=name):
                 at = AppTest.from_file(
-                    str(PROJECT_ROOT / "web" / "views" / f"{name}.py"), default_timeout=300
+                    str(WEB_DIR / "views" / f"{name}.py"), default_timeout=300
                 )
                 at.run()
                 self.assertEqual(

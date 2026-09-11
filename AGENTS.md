@@ -9,7 +9,7 @@
 ## 0. 代码结构（先看这里）
 
 ```
-regwatch/                核心包
+src/regwatch/            可安装核心包（src 布局）
 ├── config.py            配置：数据路径 / 模型条目 / 任务绑定 / 并发（config.json，不入库）
 ├── llm.py               统一 OpenAI 兼容客户端（参数自动降级、连通性测试）
 ├── datamodels.py        AmacCase/AmacSummary/CsrcCase/CsrcSummary/TaskRecord
@@ -21,15 +21,17 @@ regwatch/                核心包
 ├── report.py            报告渲染（md / html / json）
 ├── jobs.py              后台任务编排（网页与 CLI 共用）
 ├── cli.py               统一命令行（typer）
-└── sources/             采集子包：amac.py / csrc.py / amac_monthly.py / csrc_bureaus.py
-web/                     Streamlit 网页端（app.py + views/ 五页 + components/）
+├── sources/             采集子包：amac.py / csrc.py / amac_monthly.py / csrc_bureaus.py
+└── web/                 Streamlit 子包（app.py + views/ 五页 + components/）
+data/                    运行时数据（gitignore）：amac|csrc × cases|summaries|reports
 tests/                   纯本地单元测试 + AppTest 网页冒烟测试 + clamp_page 等组件单测
+scripts/migrate_layout.py  旧 AMAC/CSRC 根目录 → data/ 一次性迁移
+docs/archive/专项分析报告/   历史专题归档（只读参考）
 pyproject.toml           打包与工具链（uv / ruff / mypy）；权威依赖声明
-AMAC/*.py、CSRC/*.py      旧脚本已改为「薄封装」，仅转发到 regwatch 包
 ```
 
-**改代码的原则**：功能一律改 `regwatch/` 包内模块；`AMAC/`、`CSRC/`、`0-crawl_amac_cases_monthly.py`
-下的旧脚本只是兼容入口，不要在里面加新逻辑。
+**改代码的原则**：功能一律改 `src/regwatch/` 包内模块。旧的 `AMAC/*.py`、`CSRC/*.py`、
+`0-crawl_*.py`、`run_web.py` 兼容入口已删除；网页启动用 `regwatch web`。
 
 常用入口：
 
@@ -49,15 +51,15 @@ AMAC/*.py、CSRC/*.py      旧脚本已改为「薄封装」，仅转发到 regw
 
 | 数据集 | 监管主体 | 目录 | 案例规模 | 内容性质 |
 |--------|----------|------|----------|----------|
-| **CSRC** | 证监会及 36 家派出机构 | `CSRC/` | 千级 | 行政监管措施 + 行政处罚 |
-| **AMAC** | 中国证券投资基金业协会 | `AMAC/` | 百级 | 自律处分（纪律处分） |
+| **CSRC** | 证监会及 36 家派出机构 | `data/csrc/` | 千级 | 行政监管措施 + 行政处罚 |
+| **AMAC** | 中国证券投资基金业协会 | `data/amac/` | 百级 | 自律处分（纪律处分） |
 
 两者**独立**，目录结构不同、字段不同，但 `regwatch.storage` 已把它们归一成统一的 `CaseRow` 视图。
 
-### 1.1 磁盘布局（保持与历史数据兼容，未做迁移）
+### 1.1 磁盘布局（默认 data/，可用 config.json 的 data_roots 覆盖）
 
 ```
-AMAC/
+data/amac/
 ├── cases/                          # 案例原文
 │   ├── _index.json                 # 抓取索引（regwatch.storage.AmacIndex）
 │   ├── _org_type_cache.json        # 机构类型缓存（OrgTypeCache）
@@ -67,20 +69,21 @@ AMAC/
 ├── summaries/{case_id}_summary.json  # 摘要（扁平）+ _summary_index.json
 └── reports/                        # 报告产物
 
-CSRC/
+data/csrc/
 ├── cases/{Bureau}/{measure|penalty}/{case_id}.json
 ├── summaries/{Bureau}/{case_type}/{case_id}_summary.json  # 分目录
-└── reports/                        # 报告产物（新）
+└── reports/                        # 报告产物
 ```
 
 命名：CSRC 为 `{YYYYMMDD}_c{cid}`（c 开头），AMAC 为纯数字或 `P{20位}`。
+旧布局迁移：`python scripts/migrate_layout.py`。
 
 ### 1.2 关键字段速查
 
 **案例原文**（AMAC：`raw_text`/`ocr_success`/`org_type`/`punished_entity`；
 CSRC：`raw_text`/`is_fund_related`/`fund_evidence`/`document_number`/`punished_entities`/`case_type`/`bureau`）
 
-**摘要**（AMAC 17 字段、CSRC 24 字段，字段名见 `regwatch/datamodels.py`，两边一致的部分为
+**摘要**（AMAC 17 字段、CSRC 24 字段，字段名见 `src/regwatch/datamodels.py`，两边一致的部分为
 `violation_type`、`punishment`、`involved_fund`、`violation_summary`、`legal_basis`、`entity_type`）：
 
 - CSRC 摘要**不含 raw_text**，正文需回 `cases/` 目录读；CSRC 摘要独有
@@ -90,7 +93,7 @@ CSRC：`raw_text`/`is_fund_related`/`fund_evidence`/`document_number`/`punished_
 ### 1.3 访问策略（省 token 的正确姿势）
 
 1. **要总览/统计** → `build_catalog()` 拿 `CaseRow`（不含正文），或直接 `regwatch.analyze.analyze(rows)`；
-   网页端用 `web/components/data.py` 里的缓存封装。
+   网页端用 `regwatch.web.components.data` 里的缓存封装。
 2. **只想要"基金相关且已提取"的案例** → 过滤 `CaseRow.status == "done"`；
    CSRC 的 `status == "skipped"` 表示模型精判非基金相关（无摘要文件，`note` 存判定理由）。
 3. **要全文** → `read_case(...)` 或读 `CaseRow.case_file` 指向的 JSON，按需读取，**不要批量载入 raw_text**。
@@ -102,7 +105,7 @@ CSRC：`raw_text`/`is_fund_related`/`fund_evidence`/`document_number`/`punished_
 
 ## 2. 违规类型分类体系
 
-统一维护在 `regwatch/prompts.py`（**改动会影响历史报告可比性，需同步本节**），
+统一维护在 `src/regwatch/prompts.py`（**改动会影响历史报告可比性，需同步本节**），
 多值字段用顿号 `、` 分隔，`regwatch.storage.split_multi_value` 负责拆分：
 
 - **募集行为类**：违规募集（向不合格投资者募集、承诺保本、适当性缺失、违规外包销售）、未按规定备案、登记信息失实
@@ -137,17 +140,17 @@ CSRC：`raw_text`/`is_fund_related`/`fund_evidence`/`document_number`/`punished_
 | 找某违规类型全部案例 | `filter_rows(violation_types=["挪用基金财产"])`（多类型为「或」语义） |
 | 生成季度报告 | CLI：`python -m regwatch.cli report --dataset amac --start ... --end ... --llm` |
 | 补充/重跑摘要 | `python -m regwatch.cli summarize --dataset csrc --workers 5` |
-| 撰写新分析 | 参考 `AMAC/reports/*.md` 的章节结构与 `regwatch/report.py` 的渲染函数 |
+| 撰写新分析 | 参考 `data/amac/reports/*.md` 或 `docs/archive/专项分析报告/` 的章节结构与 `src/regwatch/report.py` 的渲染函数 |
 
-网页端（`python run_web.py`）与 CLI 完全等价，演示或非技术用户优先用网页。
+网页端（`regwatch web`）与 CLI 完全等价，演示或非技术用户优先用网页。
 
 ## 5. Token 节省清单
 
 - ✅ 先 `build_catalog()` 拿 `CaseRow`，需要正文再 `read_case()` 单条读取
 - ✅ 统计聚合用 `regwatch.analyze`，不要逐个 Read 摘要 JSON
 - ✅ 大文件用 `limit`/`offset`；`Glob` 定位而不是 `LS` 遍历
-- ✅ 改功能只改 `regwatch/`，旧脚本薄封装不要动逻辑
-- ❌ 不要遍历 `cases/` 目录读原文（1.6GB）
+- ✅ 改功能只改 `src/regwatch/`
+- ❌ 不要遍历 `data/**/cases/` 目录读原文（体积大）
 - ❌ 不要把 `raw_text` 批量载入内存
 - ❌ 不要信任 AMAC 的 `date`/`title` 做时序分析
 
@@ -156,8 +159,8 @@ CSRC：`raw_text`/`is_fund_related`/`fund_evidence`/`document_number`/`punished_
 ```powershell
 uv sync --extra web --extra dev                   # 推荐安装方式
 uv run python -m unittest discover -s tests -t .  # 全量单测，全部本地、不发网络请求
-uv run ruff check regwatch tests                  # lint
-uv run mypy regwatch                              # 类型检查（核心包）
+uv run ruff check src tests                       # lint
+uv run mypy regwatch                              # 类型检查（核心包，mypy_path=src）
 $env:REGWATCH_LIVE_TEST = "1"; uv run python -m unittest tests.test_live -v   # 可选实网测试
 ```
 

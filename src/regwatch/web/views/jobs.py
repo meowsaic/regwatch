@@ -2,16 +2,9 @@
 
 from __future__ import annotations
 
-import sys
 import time
-from pathlib import Path
 
 import streamlit as st
-
-_HERE = Path(__file__).resolve()
-for _path in (str(_HERE.parents[2]), str(_HERE.parents[1])):
-    if _path not in sys.path:
-        sys.path.insert(0, _path)
 
 from regwatch.jobs import (
     JOB_KINDS,
@@ -21,9 +14,8 @@ from regwatch.jobs import (
     get_job_manager,
 )
 from regwatch.storage import DATASET_LABELS
-
-from components import ui
-from components.data import clear_data_cache
+from regwatch.web.components import ui
+from regwatch.web.components.data import clear_data_cache
 
 ui.apply_theme()
 

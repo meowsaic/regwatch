@@ -39,7 +39,20 @@ __all__ = [
 
 # ──────────────────────────── 常量 ────────────────────────────
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+def _find_project_root(start: Path) -> Path:
+    """从包目录向上查找含 ``pyproject.toml`` 的项目根。
+
+    源码布局（``src/regwatch/``）与可编辑安装均适用；找不到时回退到
+    ``start`` 的上两级，保证导入不因布局变化而崩溃。
+    """
+    for candidate in (start, *start.parents):
+        if (candidate / "pyproject.toml").is_file():
+            return candidate
+    return start.parent.parent if len(start.parents) >= 2 else start.parent
+
+
+PROJECT_ROOT = _find_project_root(Path(__file__).resolve().parent)
 
 CONFIG_FILENAME = "config.json"
 CONFIG_EXAMPLE_FILENAME = "config.example.json"
@@ -47,12 +60,12 @@ CONFIG_EXAMPLE_FILENAME = "config.example.json"
 _ENV_PREFIX = "REGWATCH_"
 
 DEFAULT_DATA_ROOTS: dict[str, str] = {
-    "amac_cases": "AMAC/cases",
-    "amac_summaries": "AMAC/summaries",
-    "amac_reports": "AMAC/reports",
-    "csrc_cases": "CSRC/cases",
-    "csrc_summaries": "CSRC/summaries",
-    "csrc_reports": "CSRC/reports",
+    "amac_cases": "data/amac/cases",
+    "amac_summaries": "data/amac/summaries",
+    "amac_reports": "data/amac/reports",
+    "csrc_cases": "data/csrc/cases",
+    "csrc_summaries": "data/csrc/summaries",
+    "csrc_reports": "data/csrc/reports",
 }
 
 DATA_ROOT_LABELS: dict[str, str] = {

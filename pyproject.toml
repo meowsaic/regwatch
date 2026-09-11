@@ -45,17 +45,17 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["regwatch"]
+packages = ["src/regwatch"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["regwatch", "web", "tests"]
+src = ["src", "tests"]
 extend-exclude = [
   ".worktrees",
-  "AMAC",
-  "CSRC",
-  "专项分析报告",
+  "data",
+  "docs/archive",
+  "AMAC_Discipline_PDFs",
 ]
 
 [tool.ruff.lint]
@@ -80,7 +80,6 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011", "SIM117"]
-"web/*" = ["E402"]  # Streamlit views insert sys.path before imports
 
 [tool.ruff.format]
 quote-style = "double"
@@ -89,8 +88,10 @@ line-ending = "auto"
 
 [tool.mypy]
 python_version = "3.11"
-packages = ["regwatch"]
-mypy_path = "."
+files = ["src/regwatch"]
+exclude = ["src/regwatch/web/"]
+mypy_path = "src"
+explicit_package_bases = true
 ignore_missing_imports = true
 warn_unused_configs = true
 no_implicit_optional = true
