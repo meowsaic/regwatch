@@ -12,7 +12,6 @@ dependencies = [
   "openai>=1.60",
   "typer>=0.12",
   "rich>=13.0",
-  "pandas>=2.2",
   "requests>=2.32",
   "beautifulsoup4>=4.12",
   "aiohttp>=3.9",
@@ -27,6 +26,8 @@ web = [
   # 1.51 起 st.plotly_chart 支持 width 参数（表格/按钮分别自 1.49/1.48 起）
   "streamlit>=1.51",
   "plotly>=5.24",
+  # 仅网页端（表格 / 图表数据）使用，CLI 与分析服务不依赖它
+  "pandas>=2.2",
 ]
 dev = [
   "ruff>=0.9",

@@ -2155,7 +2155,6 @@ dependencies = [
     { name = "beautifulsoup4" },
     { name = "olefile" },
     { name = "openai" },
-    { name = "pandas" },
     { name = "pypdf" },
     { name = "python-docx" },
     { name = "requests" },
@@ -2173,6 +2172,7 @@ dev = [
     { name = "types-requests" },
 ]
 web = [
+    { name = "pandas" },
     { name = "plotly" },
     { name = "streamlit" },
 ]
@@ -2184,7 +2184,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },
     { name = "olefile", specifier = ">=0.47" },
     { name = "openai", specifier = ">=1.60" },
-    { name = "pandas", specifier = ">=2.2" },
+    { name = "pandas", marker = "extra == 'web'", specifier = ">=2.2" },
     { name = "plotly", marker = "extra == 'web'", specifier = ">=5.24" },
     { name = "pypdf", specifier = ">=4.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },

@@ -17,7 +17,7 @@
       ]
     }
   },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
+  "updateContentCommand": "python3 -m pip install --user -e '.[web,dev]' && echo '✅ Dependencies installed from pyproject.toml'",
   "postAttachCommand": {
     "server": "streamlit run deploy/streamlit_app.py --server.enableCORS false --server.enableXsrfProtection false"
   },

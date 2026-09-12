@@ -86,7 +86,7 @@ Secrets 里配了 `api_key_*`，等于把模型额度开放给陌生人；要公
    查找顺序是「**入口脚本所在目录 → 仓库根目录**」，同一目录内的优先级为
    `uv.lock` > `Pipfile` > `environment.yml` > `requirements.txt` > `pyproject.toml`
    （见官方文档 *App dependencies*）。
-   本仓库根目录有本地开发用的 `uv.lock`，它会盖掉根目录的 `requirements.txt`；
+   本仓库根目录有本地开发用的 `uv.lock`，它会盖掉根目录的 `pyproject.toml`；
    把依赖清单放到入口同目录 `deploy/requirements.txt` 才能确定性地生效。
 
 所以：**不要**把入口或依赖文件挪回仓库根目录，也**不要**在 `deploy/requirements.txt`

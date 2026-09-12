@@ -12,12 +12,12 @@
 # 在你不察觉的情况下破坏页面（依赖变动会触发一次完整重建，属正常现象）。
 streamlit==1.63.0
 plotly==7.0.0
+pandas>=2.2
 
 # ── 用例层 / 采集层 / 模型客户端（pyproject 的默认依赖） ──
 openai>=1.60
 typer>=0.12
 rich>=13.0
-pandas>=2.2
 requests>=2.32
 beautifulsoup4>=4.12
 aiohttp>=3.9

@@ -9,7 +9,7 @@
 2. Community Cloud 只使用「入口脚本所在目录 → 仓库根目录」中找到的**第一个**依赖
    文件，同目录内的优先级为 ``uv.lock`` > ``Pipfile`` > ``environment.yml`` >
    ``requirements.txt`` > ``pyproject.toml``。仓库根目录有本地开发用的 ``uv.lock``，
-   它会盖掉根目录的 ``requirements.txt``；把 :file:`deploy/requirements.txt` 放在入口
+   它会盖掉根目录的 ``pyproject.toml``；把 :file:`deploy/requirements.txt` 放在入口
    旁边，就能确定性地只装这份清单里的依赖。
 
 本地等价启动方式：``uv run regwatch web``（或 ``streamlit run deploy/streamlit_app.py``）。
