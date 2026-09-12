@@ -207,6 +207,7 @@ _VIOLATION_DEFS: tuple[ViolationType, ...] = (
         aliases=(
             "办公场所",
             "经营场所",
+            "场所",
             "人员配置不足",
             "人员配备不足",
             "高管任职",
@@ -215,13 +216,21 @@ _VIOLATION_DEFS: tuple[ViolationType, ...] = (
     ),
     ViolationType(
         "未持续符合登记条件",
-        aliases=("失联", "不再具备登记条件", "不符合登记条件", "资本金不足", "不符合登记要求"),
+        aliases=(
+            "失联",
+            "不再具备登记条件",
+            "不符合登记条件",
+            "资本金不足",
+            "不符合登记要求",
+            "资本金等基本条件缺失",
+        ),
     ),
     ViolationType(
         "未配合自律管理",
         aliases=(
             "未配合监管",
             "未配合检查",
+            "未配合自律检查",
             "拒不配合",
             "提供虚假材料",
             "逾期不整改",
@@ -301,8 +310,13 @@ def _match_fragment(fragment: str) -> str | None:
 
 
 def canonical_violations(raw: str | None) -> list[str]:
-    """归一化但不补「未分类」占位（供落库关联表使用）。"""
-    return [item for item in normalize_violations(raw) if item != UNCLASSIFIED]
+    """归一化并只保留已知 canonical 类型（供落库关联表使用）。
+
+    未命中的碎片（提示词分组标题、截断括号等）不写入关联表，
+    避免统计维度被脏值污染；展示层仍用 :func:`normalize_violations`。
+    """
+    known = {item.name for item in _VIOLATION_DEFS}
+    return [item for item in normalize_violations(raw) if item in known]
 
 
 def normalize_violations(raw: str | None) -> list[str]:

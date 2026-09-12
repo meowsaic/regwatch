@@ -46,6 +46,7 @@ src/regwatch/
 | 模型客户端 | `services.llm.client(task="summarize")` |
 | 旧布局导入 | `regwatch db import --data-root data` 或 `scripts/migrate_to_sqlite.py` |
 | 回填违规类型关联表 | `regwatch db rebuild-violations`（分类体系升级后执行，不调用模型） |
+| 确定性数据质量修复 | `regwatch db repair [--dry-run]`（标题回填当事人/文书号、落款处分日、重建关联表；不调用模型） |
 
 ---
 
@@ -108,8 +109,9 @@ CSRC 专属 `case_type`(penalty/measure)、`bureau`、`document_number`、`punis
   回归测试 `TestPromptCoverage` 保证提示词与清单不脱节；
 - AMAC / CSRC 同义措辞归一到同一 canonical：「未尽勤勉尽责义务」= CSRC「未勤勉尽责」、
   「未配合自律管理」= CSRC「未配合监管」；展示时用 `violation_label(name, dataset)` 还原文书措辞；
-- `case_violations` 落库存 canonical（`canonical_violations()` 归一，过滤「未分类」），
-  `summaries.violation_type` 保留模型原文；归一还兼容中点 `·` 与「类型：子项」冒号写法；
+- `case_violations` 落库存 canonical（`canonical_violations()` 归一，**丢弃未知碎片**，
+  不把提示词分组标题等脏值写入关联表），`summaries.violation_type` 保留模型原文；
+  归一还兼容中点 `·` 与「类型：子项」冒号写法；
 - 分组速览（canonical 名）：
   - **募集行为类**：违规募集、未按规定备案、登记信息失实
   - **投资运作类**：违规投资运作、挪用基金财产、违规关联交易、未按规定托管、未按规定估值
@@ -132,11 +134,18 @@ CSRC 专属 `case_type`(penalty/measure)、`bureau`、`document_number`、`punis
 1. **CSRC 标题粗筛会误判**：采集器靠关键词匹配，仅因法规名含「基金」即可能标记相关；
    摘要阶段的 `status == SKIPPED` 才是模型精判结果，可信。
 2. **AMAC 的 `date`/`title` 可能与 `raw_text` 不符**（网站用同一 URL 更新内容），
-   分析时间与当事人时以正文落款为准。
-3. **CSRC `case_type` 轻重有别**：`measure`（警示函、责令改正等）轻于 `penalty`（罚款、市场禁入）。
-4. **`status == SKIPPED` 的案例没有摘要**，理由记录在 `cases.status_note`。
-5. **CSRC `bureau="HQ"`** 表示证监会总部，其余为派出机构（见 `sources/bureaus.py`）。
-6. **抓取状态不再依赖索引文件**：是否已抓过 = 库中是否存在且已有正文，断点续传天然成立。
+   分析时间与当事人时以正文落款为准；`cases.date` 是公告日，`summaries.punishment_date`
+   是处分决定日，二者大量不一致属正常，时序分析请明确选用哪一个。
+   少数 2018 注销公告正文已被后续决定书覆盖，摘要字段已清空并在 `status_note` 标注。
+3. **当事人字段**：AMAC 在 `cases.punished_entity`，CSRC 在 `cases.punished_entities`；
+   模型提取的当事人写入 `summaries.punished_entity`，`CaseRow` 会合并展示。
+   缺失/脏值用 `regwatch db repair` 从标题/正文确定性回填与清洗
+   （会去掉 CSRC「采取出具警示函措施」等尾巴，并规范 `entity_type`）。
+4. **CSRC `case_type` 轻重有别**：`measure`（警示函、责令改正等）轻于 `penalty`（罚款、市场禁入）。
+5. **`status == SKIPPED` 的案例没有摘要**，理由记录在 `cases.status_note`。
+6. **CSRC `bureau="HQ"`** 表示证监会总部，其余为派出机构（见 `sources/bureaus.py`）。
+7. **抓取状态不再依赖索引文件**：是否已抓过 = 库中是否存在且已有正文，断点续传天然成立。
+8. **非法 `punishment_date`**（如 `2024-08-74`）会被 `db repair` 清空，不会猜真实日期。
 
 ---
 

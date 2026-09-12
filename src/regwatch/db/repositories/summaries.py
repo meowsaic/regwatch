@@ -24,6 +24,7 @@ _SUMMARY_COLUMNS: tuple[str, ...] = (
     "dataset",
     "case_id",
     "entity_type",
+    "punished_entity",
     "violation_type",
     "punishment",
     "punishment_date",
@@ -60,6 +61,7 @@ class SummaryRepository:
             summary.dataset.value,
             summary.case_id,
             summary.entity_type,
+            summary.punished_entity,
             summary.violation_type,
             summary.punishment,
             summary.punishment_date,
@@ -204,6 +206,137 @@ class SummaryRepository:
         )
         return bool(cursor.rowcount)
 
+    def set_punishment_date(
+        self,
+        dataset: Dataset | str,
+        case_id: str,
+        punishment_date: str,
+        *,
+        only_if_empty: bool = True,
+    ) -> bool:
+        """回填处分日期；默认只填空值，不覆盖模型结果。"""
+        value = _dataset_value(dataset)
+        if only_if_empty:
+            cursor = self._db.execute(
+                "UPDATE summaries SET punishment_date = ? "
+                "WHERE dataset = ? AND case_id = ? "
+                "AND (punishment_date IS NULL OR TRIM(punishment_date) = '')",
+                (punishment_date, value, case_id),
+            )
+        else:
+            cursor = self._db.execute(
+                "UPDATE summaries SET punishment_date = ? WHERE dataset = ? AND case_id = ?",
+                (punishment_date, value, case_id),
+            )
+        return bool(cursor.rowcount)
+
+    def set_violation_type(self, dataset: Dataset | str, case_id: str, violation_type: str) -> bool:
+        """人工/规则修正违规类型原文，并重建该案例的关联表。"""
+        value = _dataset_value(dataset)
+        summary = self.get(value, case_id)
+        if summary is None:
+            return False
+        summary.violation_type = violation_type
+        self.upsert(summary)
+        return True
+
+    def set_punished_entity(
+        self,
+        dataset: Dataset | str,
+        case_id: str,
+        punished_entity: str,
+        *,
+        only_if_empty: bool = True,
+    ) -> bool:
+        """回填摘要侧当事人；默认只填空。"""
+        value = _dataset_value(dataset)
+        if only_if_empty:
+            cursor = self._db.execute(
+                "UPDATE summaries SET punished_entity = ? "
+                "WHERE dataset = ? AND case_id = ? "
+                "AND (punished_entity IS NULL OR TRIM(punished_entity) = '')",
+                (punished_entity, value, case_id),
+            )
+        else:
+            cursor = self._db.execute(
+                "UPDATE summaries SET punished_entity = ? WHERE dataset = ? AND case_id = ?",
+                (punished_entity, value, case_id),
+            )
+        return bool(cursor.rowcount)
+
+    def set_entity_type(
+        self,
+        dataset: Dataset | str,
+        case_id: str,
+        entity_type: str,
+        *,
+        only_if_empty: bool = False,
+    ) -> bool:
+        """回填/规范主体类型（机构 / 个人 / 机构、个人）。"""
+        value = _dataset_value(dataset)
+        if only_if_empty:
+            cursor = self._db.execute(
+                "UPDATE summaries SET entity_type = ? "
+                "WHERE dataset = ? AND case_id = ? "
+                "AND (entity_type IS NULL OR TRIM(entity_type) = '')",
+                (entity_type, value, case_id),
+            )
+        else:
+            cursor = self._db.execute(
+                "UPDATE summaries SET entity_type = ? WHERE dataset = ? AND case_id = ?",
+                (entity_type, value, case_id),
+            )
+        return bool(cursor.rowcount)
+
+    def set_punishment(
+        self,
+        dataset: Dataset | str,
+        case_id: str,
+        punishment: str,
+        *,
+        only_if_empty: bool = True,
+    ) -> bool:
+        """回填处罚措施；默认只填空。"""
+        value = _dataset_value(dataset)
+        if only_if_empty:
+            cursor = self._db.execute(
+                "UPDATE summaries SET punishment = ? "
+                "WHERE dataset = ? AND case_id = ? "
+                "AND (punishment IS NULL OR TRIM(punishment) = '')",
+                (punishment, value, case_id),
+            )
+        else:
+            cursor = self._db.execute(
+                "UPDATE summaries SET punishment = ? WHERE dataset = ? AND case_id = ?",
+                (punishment, value, case_id),
+            )
+        return bool(cursor.rowcount)
+
+    def list_for_field_fill(
+        self,
+        *,
+        field: str,
+        dataset: Dataset | str | None = None,
+        extract_success: bool = True,
+    ) -> list[dict[str, Any]]:
+        """列出摘要中指定字段为空的案例（供确定性回填）。"""
+        if field not in _SUMMARY_COLUMNS:
+            raise ValueError(f"未知摘要字段: {field}")
+        sql = (
+            f"SELECT s.dataset, s.case_id, s.{field} AS field_value, c.title, c.punished_entity, "
+            f"c.punished_entities, c.document_number, c.date, c.status "
+            f"FROM summaries s JOIN cases c ON c.dataset = s.dataset AND c.case_id = s.case_id "
+            f"WHERE TRIM(COALESCE(s.{field}, '')) = ''"
+        )
+        params: list[Any] = []
+        if extract_success:
+            sql += " AND s.extract_success = 1"
+        if dataset is not None:
+            sql += " AND s.dataset = ?"
+            params.append(_dataset_value(dataset))
+        sql += " ORDER BY s.dataset, s.case_id"
+        return [dict(row) for row in self._db.query(sql, tuple(params))]
+
     # ── 读取 ──
 
     def get(self, dataset: Dataset | str, case_id: str) -> SummaryRecord | None:
@@ -289,6 +422,7 @@ def _summary_from_row(row: Any) -> SummaryRecord:
         dataset=str(row["dataset"]),
         case_id=str(row["case_id"]),
         entity_type=str(row["entity_type"] or ""),
+        punished_entity=str(row["punished_entity"] or ""),
         violation_type=str(row["violation_type"] or ""),
         punishment=str(row["punishment"] or ""),
         punishment_date=str(row["punishment_date"] or ""),

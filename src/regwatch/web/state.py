@@ -12,7 +12,15 @@ import streamlit as st
 
 from regwatch.domain import CaseQuery
 
-__all__ = ["FILTER_KEYS", "FILTER_WIDGET_KEYS", "build_query", "get", "reset_filters", "set_value"]
+__all__ = [
+    "FILTER_KEYS",
+    "FILTER_WIDGET_KEYS",
+    "active_filter_chips",
+    "build_query",
+    "get",
+    "reset_filters",
+    "set_value",
+]
 
 #: 会话状态的键前缀，避免与 Streamlit 内部键冲突
 PREFIX = "regwatch."
@@ -114,3 +122,58 @@ def build_query(*, limit: int = 0, offset: int = 0, order_by: str = "date") -> C
         offset=offset,
         order_by=order_by,
     )
+
+
+def active_filter_chips() -> list[str]:
+    """把当前会话筛选条件压成摘要 chips（案例浏览与统计分析共用）。
+
+    统计分析页只暴露日期控件，但查询条件与案例浏览同源；
+    展示这些「隐形筛选」可以避免「日期范围很大却只有几例」的困惑。
+    """
+    from regwatch.domain import CaseStatus, CaseType, Dataset
+
+    chips: list[str] = []
+    datasets = get("datasets") or []
+    if datasets:
+        labels = []
+        for value in datasets:
+            parsed = Dataset.parse(value)
+            labels.append(parsed.label if parsed else str(value))
+        chips.append("数据集：" + "、".join(labels))
+    case_types = get("case_types") or []
+    if case_types:
+        labels = []
+        for value in case_types:
+            parsed = CaseType.parse(value)
+            labels.append(parsed.label if parsed else str(value))
+        chips.append("案例类型：" + "、".join(labels))
+    statuses = get("statuses") or []
+    if statuses:
+        labels = []
+        for value in statuses:
+            parsed = CaseStatus.parse(value)
+            labels.append(parsed.label if parsed else str(value))
+        chips.append("状态：" + "、".join(labels))
+    violations = get("violations") or []
+    if violations:
+        shown = list(violations)[:3]
+        extra = len(violations) - len(shown)
+        suffix = f" +{extra}" if extra > 0 else ""
+        chips.append("违规：" + "、".join(shown) + suffix)
+    bureaus = get("bureaus") or []
+    if bureaus:
+        shown = list(bureaus)[:3]
+        extra = len(bureaus) - len(shown)
+        suffix = f" +{extra}" if extra > 0 else ""
+        chips.append("来源局：" + "、".join(shown) + suffix)
+    entity_types = get("entity_types") or []
+    if entity_types:
+        chips.append("主体：" + "、".join(entity_types))
+    date_from = get("date_from") or ""
+    date_to = get("date_to") or ""
+    if date_from or date_to:
+        chips.append(f"日期：{date_from or '不限'} ~ {date_to or '不限'}")
+    keyword = str(get("keyword") or "").strip()
+    if keyword:
+        chips.append(f"关键词：{keyword}")
+    return chips

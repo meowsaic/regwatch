@@ -275,6 +275,10 @@ class SummarizationService:
             summary.punished_entity = str(extracted.get("punished_entity") or "") or (
                 case.punished_entity
             )
+            if summary.punished_entity and not (case.punished_entity or "").strip():
+                self._cases.set_punished_entity(
+                    case.dataset, case.case_id, summary.punished_entity, only_if_empty=True
+                )
 
         self._summaries.upsert(summary, status=CaseStatus.DONE)
         logger.info("  [✓] %s | %s | %s", case.case_id, summary.entity_type, summary.violation_type)

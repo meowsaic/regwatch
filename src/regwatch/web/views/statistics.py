@@ -7,7 +7,7 @@ import streamlit as st
 
 from regwatch.web.components import charts, ui
 from regwatch.web.components.data import cache_key, load_stats
-from regwatch.web.state import build_query
+from regwatch.web.state import active_filter_chips, build_query, reset_filters
 
 __all__ = ["render"]
 
@@ -37,6 +37,18 @@ def render() -> None:
             )
 
     stats = load_stats(cache_key(build_query()))
+
+    # 查询条件与案例浏览共享；日期之外还有筛选时明确提示，避免「数量不对」的困惑
+    chips = active_filter_chips()
+    if chips:
+        hint_cols = st.columns([5, 1])
+        with hint_cols[0]:
+            st.caption("已应用筛选（与案例浏览共享）：" + "；".join(chips))
+        with hint_cols[1]:
+            if st.button("清空筛选", key="stats-clear-filters"):
+                reset_filters()
+                st.rerun()
+
     total = stats.get("basic", {}).get("total", 0)
     if not total:
         ui.empty_state("暂无可统计的案例", "先运行抓取与摘要提取。")

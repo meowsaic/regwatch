@@ -44,8 +44,12 @@ class TestSummarizeOne:
 
         summary = store.summaries.get(Dataset.AMAC, amac_case.case_id)
         assert summary is not None and summary.extract_success
+        assert summary.punished_entity == "某某基金管理有限公司"
         assert summary.violation_types == ("违规募集", "内控缺失")
         assert summary.punishment == "公开谴责"
+        case_after = store.cases.get(Dataset.AMAC, amac_case.case_id)
+        assert case_after is not None
+        assert case_after.punished_entity == "某某基金管理有限公司"
         assert store.summaries.violations_of(Dataset.AMAC, amac_case.case_id) == (
             "内控缺失",
             "违规募集",

@@ -132,6 +132,53 @@ class TestCaseRepository:
             {"period": "2026-01", "count": 2, "institutions": 2, "personnel": 0}
         ]
 
+    def test_time_trend_with_dataset_filter_keeps_monthly_periods(self, store: DataStore) -> None:
+        """回归：`dataset IN (?, ?)` 不得与 substr/length 占位符抢绑定位置。
+
+        网页总览默认 `datasets=Dataset.all()`，若 length 参数被 append 到
+        WHERE 参数之后，substr 会吃到 dataset 值，period 变成空串。
+        """
+        store.cases.upsert(
+            CaseRecord(
+                dataset=Dataset.AMAC,
+                case_id="a1",
+                date="2025-03-01",
+                status=CaseStatus.DONE,
+            )
+        )
+        store.cases.upsert(
+            CaseRecord(
+                dataset=Dataset.CSRC,
+                case_id="c1",
+                date="2025-04-01",
+                status=CaseStatus.DONE,
+            )
+        )
+        store.summaries.upsert(
+            SummaryRecord(
+                dataset=Dataset.AMAC,
+                case_id="a1",
+                entity_type="机构",
+            ),
+            status=CaseStatus.DONE,
+        )
+        store.summaries.upsert(
+            SummaryRecord(
+                dataset=Dataset.CSRC,
+                case_id="c1",
+                entity_type="个人",
+            ),
+            status=CaseStatus.DONE,
+        )
+        query = CaseQuery(datasets=Dataset.all())
+        assert store.cases.time_trend(query) == [
+            {"period": "2025-03", "count": 1, "institutions": 1, "personnel": 0},
+            {"period": "2025-04", "count": 1, "institutions": 0, "personnel": 1},
+        ]
+        assert store.cases.time_trend(query, granularity="year") == [
+            {"period": "2025", "count": 2, "institutions": 1, "personnel": 1},
+        ]
+
     def test_aggregate_rejects_unknown_group(self, seeded: DataStore) -> None:
         with pytest.raises(ValueError):
             seeded.cases.aggregate(CaseQuery(), "raw_text")

@@ -85,6 +85,41 @@ def rebuild_violations() -> None:
     )
 
 
+@app.command("repair")
+def repair(
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="只统计不写库")] = False,
+    short_body_max: Annotated[
+        int, typer.Option("--short-body-max", help="短正文阈值（字符）")
+    ] = 200,
+) -> None:
+    """确定性数据质量修复（不调用模型）。
+
+    回填 AMAC 标题当事人、CSRC 文书号、正文落款处分日期；
+    重建违规类型关联表；列出过短正文。
+    """
+    services = resolve_services()
+    if services.data_repair is None:
+        console.print("[red]data_repair 服务未装配[/red]")
+        raise typer.Exit(1)
+    report = services.data_repair.repair(dry_run=dry_run, short_body_max=short_body_max)
+    payload = report.as_dict()
+    samples = payload.pop("samples", {})
+    short = payload.pop("short_bodies", [])
+    console.print(json.dumps(payload, ensure_ascii=False, indent=2))
+    if samples:
+        console.print("\n[bold]样例[/bold]")
+        for key, items in samples.items():
+            console.print(f"  {key}:")
+            for item in items:
+                console.print(f"    - {item}")
+    if short:
+        console.print(f"\n[bold]短正文[/bold]（前 20 / 共 {len(short)}）")
+        for item in short[:20]:
+            console.print(f"  {item['dataset']}:{item['case_id']} length={item['length']}")
+    if dry_run:
+        console.print("[yellow]dry-run：未写入数据库[/yellow]")
+
+
 @app.command("stats")
 def stats() -> None:
     """打印库内规模与状态分布。"""

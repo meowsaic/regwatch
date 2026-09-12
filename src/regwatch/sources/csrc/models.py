@@ -17,6 +17,7 @@ __all__ = [
     "NON_FUND_TITLE_KEYWORDS",
     "CaseData",
     "build_case_id",
+    "clean_entity_name",
     "extract_document_number",
     "extract_full_org_name_from_text",
     "extract_org_name_from_title",
@@ -105,8 +106,39 @@ _ENTITY_HINT = r"(?:公司|企业|有限|合伙|事务所|集团)"
 _PARTY_PREFIXES = ("当事人", "被申请人", "申请人", "被处罚人", "被处置机构", "被调查人")
 
 
+def clean_entity_name(raw: str) -> str:
+    """去掉误吸入的监管措施尾巴，如「张西湖采取出具警示函措施」→「张西湖」。"""
+    text = re.sub(r"\s+", "", (raw or "").strip())
+    if not text:
+        return ""
+    # 措施/处罚动作后缀（含「行政监管措施」变体）
+    cleaned = re.split(
+        r"(?:采取|出具|作出|给予|责令|实施|处以|处|撤销|注销|暂停|取消|监管谈话|"
+        r"行政处罚|监管措施|行政监管措施|警示函|监管函|监管工作函|"
+        r"警示函措施|监管谈话措施|责令改正措施|行政监管措施决定)",
+        text,
+        maxsplit=1,
+    )[0]
+    cleaned = cleaned.rstrip("的、，,：:；;（(【[")
+    # 三字以上人名或带机构后缀的才算有效
+    if len(cleaned) >= 2:
+        return cleaned
+    return ""
+
+
 def extract_org_name_from_title(title: str) -> str | None:
     """从案例标题中正则提取受处罚机构名称。"""
+    # 优先：动作词前截断（对个人名也适用，最短 2 字）
+    action = re.search(
+        r"(?:关于)?对[《]?([^》、，,]+?)[》]?(?:的)?"
+        r"(?:采取|出具|作出|给予|责令|撤销|注销|暂停|取消|行政处罚|监管措施|警示|监管谈话)",
+        title,
+    )
+    if action:
+        name = clean_entity_name(action.group(1))
+        if len(name) >= 2:
+            return name
+
     patterns = (
         r"关于对[《]?([^》]+?)[》]?(?:的)?(?:行政处罚|监管措施|采取|撤销|注销|暂停|取消|责令|警示|监管谈话)",
         r"关于对[《]?([^》]+?)[》]?的",
@@ -115,11 +147,12 @@ def extract_org_name_from_title(title: str) -> str | None:
     for pattern in patterns:
         match = re.search(pattern, title)
         if match:
-            name = match.group(1).strip()
+            name = clean_entity_name(match.group(1))
             for suffix in _TITLE_SUFFIXES:
                 name = name.replace(suffix, "")
             name = name.rstrip("的、，,")
-            if len(name) >= 4:
+            # 人名可 2–3 字；机构名通常更长
+            if len(name) >= 2 and not re.search(r"采取|出具|措施|决定书", name):
                 return name
 
     match = re.search(r"[（(]((?:[^()（）]|[（(][^)）]*[)）])+)[)）]", title)
@@ -194,12 +227,13 @@ def extract_punished_entities(title: str, raw_text: str) -> str:
     """提取受处罚主体名称（多个用顿号分隔）。"""
     name = extract_org_name_from_title(title)
     if name and re.search(_ENTITY_HINT, name):
-        return name
+        return clean_entity_name(name)
     if raw_text:
         full_name = extract_full_org_name_from_text(name, raw_text)
         if full_name:
-            return full_name
-    return name or ""
+            return clean_entity_name(full_name)
+    # 人名等无机构后缀：直接用标题抽取结果（已清洗措施尾巴）
+    return clean_entity_name(name or "")
 
 
 # ──────────────────────────── 文号提取 ────────────────────────────

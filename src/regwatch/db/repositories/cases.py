@@ -64,6 +64,7 @@ SELECT
     c.org_type, c.document_number, c.punished_entities, c.punished_entity,
     c.is_fund_related, c.fund_evidence, c.doc_url,
     COALESCE(s.entity_type, '')          AS entity_type,
+    COALESCE(NULLIF(s.punished_entity, ''), c.punished_entity, '') AS summary_punished_entity,
     COALESCE(s.violation_type, '')       AS violation_type,
     COALESCE(s.punishment, '')           AS punishment,
     COALESCE(s.punishment_date, '')      AS punishment_date,
@@ -185,6 +186,73 @@ class CaseRepository:
             (value, note, now_iso(), _dataset_value(dataset), case_id),
         )
 
+    def set_punished_entity(
+        self, dataset: Dataset | str, case_id: str, entity: str, *, only_if_empty: bool = True
+    ) -> bool:
+        """回填当事人；``only_if_empty`` 时不覆盖已有非空值。返回是否写入。"""
+        if only_if_empty:
+            cursor = self._db.execute(
+                "UPDATE cases SET punished_entity = ?, updated_at = ? "
+                "WHERE dataset = ? AND case_id = ? "
+                "AND (punished_entity IS NULL OR TRIM(punished_entity) = '')",
+                (entity, now_iso(), _dataset_value(dataset), case_id),
+            )
+        else:
+            cursor = self._db.execute(
+                "UPDATE cases SET punished_entity = ?, updated_at = ? "
+                "WHERE dataset = ? AND case_id = ?",
+                (entity, now_iso(), _dataset_value(dataset), case_id),
+            )
+        return bool(cursor.rowcount)
+
+    def set_punished_entities(
+        self, dataset: Dataset | str, case_id: str, entities: str, *, only_if_empty: bool = True
+    ) -> bool:
+        """回填 CSRC 受处罚主体（``punished_entities``）。返回是否写入。"""
+        if only_if_empty:
+            cursor = self._db.execute(
+                "UPDATE cases SET punished_entities = ?, updated_at = ? "
+                "WHERE dataset = ? AND case_id = ? "
+                "AND (punished_entities IS NULL OR TRIM(punished_entities) = '')",
+                (entities, now_iso(), _dataset_value(dataset), case_id),
+            )
+        else:
+            cursor = self._db.execute(
+                "UPDATE cases SET punished_entities = ?, updated_at = ? "
+                "WHERE dataset = ? AND case_id = ?",
+                (entities, now_iso(), _dataset_value(dataset), case_id),
+            )
+        return bool(cursor.rowcount)
+
+    def set_document_number(
+        self, dataset: Dataset | str, case_id: str, number: str, *, only_if_empty: bool = True
+    ) -> bool:
+        """回填文书号；``only_if_empty`` 时不覆盖已有非空值。返回是否写入。"""
+        if only_if_empty:
+            cursor = self._db.execute(
+                "UPDATE cases SET document_number = ?, updated_at = ? "
+                "WHERE dataset = ? AND case_id = ? "
+                "AND (document_number IS NULL OR TRIM(document_number) = '')",
+                (number, now_iso(), _dataset_value(dataset), case_id),
+            )
+        else:
+            cursor = self._db.execute(
+                "UPDATE cases SET document_number = ?, updated_at = ? "
+                "WHERE dataset = ? AND case_id = ?",
+                (number, now_iso(), _dataset_value(dataset), case_id),
+            )
+        return bool(cursor.rowcount)
+
+    def list_short_bodies(self, *, max_length: int = 200) -> list[tuple[str, str, int]]:
+        """正文过短的案例（可能是抓取/解析失败）。返回 (dataset, case_id, length)。"""
+        rows = self._db.query(
+            "SELECT b.dataset, b.case_id, LENGTH(b.raw_text) AS n "
+            "FROM case_bodies b JOIN cases c ON c.dataset = b.dataset AND c.case_id = b.case_id "
+            "WHERE LENGTH(b.raw_text) < ? ORDER BY n ASC, b.dataset, b.case_id",
+            (max_length,),
+        )
+        return [(str(row["dataset"]), str(row["case_id"]), int(row["n"] or 0)) for row in rows]
+
     def delete(self, dataset: Dataset | str, case_id: str) -> bool:
         """删除案例（正文与摘要随外键级联）。"""
         cursor = self._db.execute(
@@ -287,15 +355,16 @@ class CaseRepository:
         """按月 / 年统计趋势。"""
         length = 7 if granularity == "month" else 4
         where, params = build_where(query)
+        # length 是代码常量，必须内联：substr 占位符出现在 WHERE 之前，
+        # 若 append 到 where 参数末尾，dataset IN (?, ?) 会错位吃掉 length。
         sql = (
-            "SELECT substr(c.date, 1, ?) AS period, COUNT(*) AS count, "
+            f"SELECT substr(c.date, 1, {length}) AS period, COUNT(*) AS count, "
             "SUM(CASE WHEN COALESCE(s.entity_type, '') = '机构' THEN 1 ELSE 0 END) AS institutions, "
             "SUM(CASE WHEN COALESCE(s.entity_type, '') = '个人' THEN 1 ELSE 0 END) AS personnel "
             "FROM cases c LEFT JOIN summaries s ON s.dataset = c.dataset AND s.case_id = c.case_id "
-            f"WHERE {where} AND length(c.date) >= ? "
+            f"WHERE {where} AND length(c.date) >= {length} "
             "GROUP BY period ORDER BY period"
         )
-        params.extend([length, length])
         return [
             {
                 "period": str(row["period"]),
@@ -380,7 +449,12 @@ def _row_from_query(row: Any) -> CaseRow:
         category=str(row["category"] or ""),
         entity_type=str(row["entity_type"] or ""),
         org_type=str(row["org_type"] or ""),
-        punished_entities=str(row["punished_entities"] or row["punished_entity"] or ""),
+        punished_entities=str(
+            row["punished_entities"]
+            or row["summary_punished_entity"]
+            or row["punished_entity"]
+            or ""
+        ),
         document_number=str(row["document_number"] or ""),
         is_fund_related=None if row["is_fund_related"] is None else bool(row["is_fund_related"]),
         fund_evidence=str(row["fund_evidence"] or ""),

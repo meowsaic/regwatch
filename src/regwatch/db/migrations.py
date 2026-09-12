@@ -18,7 +18,7 @@ from ..domain import canonical_violations
 logger = logging.getLogger("regwatch.db")
 
 #: 当前 schema 版本；新增表或列时 +1 并把变更写进 :data:`MIGRATIONS`
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 __all__ = ["MIGRATIONS", "SCHEMA_VERSION", "ensure_schema", "load_schema_sql"]
 
@@ -80,8 +80,19 @@ def _backfill_canonical_violations(conn: sqlite3.Connection) -> None:
         )
 
 
+def _add_summary_punished_entity(conn: sqlite3.Connection) -> None:
+    """v3：摘要表补上模型提取的受处分主体，避免 AMAC 当事人被静默丢弃。"""
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(summaries)")}
+    if "punished_entity" not in columns:
+        conn.execute("ALTER TABLE summaries ADD COLUMN punished_entity TEXT NOT NULL DEFAULT ''")
+
+
 #: 迁移步骤：索引 ``i`` 处的函数把库从 ``user_version = i`` 升到 ``i + 1``
-MIGRATIONS: list = [_create_initial_schema, _backfill_canonical_violations]
+MIGRATIONS: list = [
+    _create_initial_schema,
+    _backfill_canonical_violations,
+    _add_summary_punished_entity,
+]
 
 
 def current_version(conn: sqlite3.Connection) -> int:

@@ -105,11 +105,15 @@ p,span,div,li{{font-size:15px}}
 
 /* ── 侧边导航：收窄 + 深色底上保证对比度 ── */
 section[data-testid="stSidebar"], [data-testid="stSidebar"] {{
+  background:linear-gradient(180deg,#1e2f5e 0%,#2a3f7d 55%,#34508f 100%);
+  border-right:none;
+}}
+/* 仅展开时锁宽；收起时不覆盖 Streamlit 默认收起宽度，主内容区才能回流铺满 */
+section[data-testid="stSidebar"][aria-expanded="true"],
+[data-testid="stSidebar"][aria-expanded="true"] {{
   min-width:var(--rw-sidebar-width) !important;
   max-width:var(--rw-sidebar-width) !important;
   width:var(--rw-sidebar-width) !important;
-  background:linear-gradient(180deg,#1e2f5e 0%,#2a3f7d 55%,#34508f 100%);
-  border-right:none;
 }}
 section[data-testid="stSidebar"] *, [data-testid="stSidebar"] *{{color:#E8EEFB !important}}
 section[data-testid="stSidebar"] [data-testid="stSidebarNav"] span{{font-weight:600;font-size:14.5px}}

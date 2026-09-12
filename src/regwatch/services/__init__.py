@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from .analyze import AnalysisResult, AnalysisService, analyze
 from .container import Services, build_services, get_services, reset_services
+from .data_repair import DataRepairService, RepairReport
 from .jobs import (
     JOB_SPECS,
     JobCancelled,
@@ -29,6 +30,7 @@ __all__ = [
     "AnalysisResult",
     "AnalysisService",
     "BackfillResult",
+    "DataRepairService",
     "JobCancelled",
     "JobContext",
     "JobError",
@@ -40,6 +42,7 @@ __all__ = [
     "QaRetrieval",
     "QaService",
     "QaTurn",
+    "RepairReport",
     "ReportOutput",
     "ReportService",
     "Services",

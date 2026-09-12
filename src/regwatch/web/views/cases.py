@@ -17,7 +17,7 @@ from regwatch.web.components.data import (
     load_rows,
     violation_options,
 )
-from regwatch.web.state import build_query, get, reset_filters, set_value
+from regwatch.web.state import active_filter_chips, build_query, get, reset_filters, set_value
 
 __all__ = ["render"]
 
@@ -34,7 +34,7 @@ def render() -> None:
 
     query = build_query()
     all_rows = load_rows(cache_key(query))
-    ui.filter_summary(len(all_rows), _active_filter_chips())
+    ui.filter_summary(len(all_rows), active_filter_chips())
     if not all_rows:
         ui.empty_state("没有符合条件的案例", "试试放宽筛选条件或清空关键词。")
         return
@@ -112,55 +112,6 @@ def _rows_frame(rows: list[dict]) -> pd.DataFrame:
             for row in rows
         ]
     )
-
-
-def _active_filter_chips() -> list[str]:
-    """把当前会话筛选条件压成摘要 chips。"""
-    chips: list[str] = []
-    datasets = get("datasets") or []
-    if datasets:
-        labels = []
-        for value in datasets:
-            parsed = Dataset.parse(value)
-            labels.append(parsed.label if parsed else str(value))
-        chips.append("数据集：" + "、".join(labels))
-    case_types = get("case_types") or []
-    if case_types:
-        labels = []
-        for value in case_types:
-            parsed = CaseType.parse(value)
-            labels.append(parsed.label if parsed else str(value))
-        chips.append("案例类型：" + "、".join(labels))
-    statuses = get("statuses") or []
-    if statuses:
-        labels = []
-        for value in statuses:
-            parsed = CaseStatus.parse(value)
-            labels.append(parsed.label if parsed else str(value))
-        chips.append("状态：" + "、".join(labels))
-    violations = get("violations") or []
-    if violations:
-        shown = list(violations)[:3]
-        extra = len(violations) - len(shown)
-        suffix = f" +{extra}" if extra > 0 else ""
-        chips.append("违规：" + "、".join(shown) + suffix)
-    bureaus = get("bureaus") or []
-    if bureaus:
-        shown = list(bureaus)[:3]
-        extra = len(bureaus) - len(shown)
-        suffix = f" +{extra}" if extra > 0 else ""
-        chips.append("来源局：" + "、".join(shown) + suffix)
-    entity_types = get("entity_types") or []
-    if entity_types:
-        chips.append("主体：" + "、".join(entity_types))
-    date_from = get("date_from") or ""
-    date_to = get("date_to") or ""
-    if date_from or date_to:
-        chips.append(f"日期：{date_from or '不限'} ~ {date_to or '不限'}")
-    keyword = str(get("keyword") or "").strip()
-    if keyword:
-        chips.append(f"关键词：{keyword}")
-    return chips
 
 
 def _multiselect(label: str, **kwargs: Any) -> list:

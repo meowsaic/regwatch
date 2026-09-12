@@ -23,7 +23,7 @@ from ..domain import CaseQuery
 from ..logging_setup import configure_logging
 from . import access, nav
 from .components import ui
-from .components.data import cache_key, clear_data_cache, load_overview, settings
+from .components.data import cache_key, clear_data_cache, load_overview
 
 __all__ = ["build_pages", "configure_page", "run", "sidebar"]
 
@@ -48,9 +48,6 @@ def _overview_key() -> tuple:
 def sidebar(note: str = "") -> None:
     """统一侧边栏：紧凑规模信息、刷新缓存、只读提示（可选 ``note`` 说明）。"""
     with st.sidebar:
-        st.markdown("### 🛡 regwatch")
-        cfg = settings()
-        st.caption(f"数据库：{cfg.database.name}")
         overview = load_overview(_overview_key())
         # 用紧凑 caption 替代 st.metric 大卡：侧边栏更窄，深色底上对比度也更稳
         st.markdown(
@@ -69,7 +66,6 @@ def sidebar(note: str = "") -> None:
         access.sidebar_lock()
         if note:
             st.caption(note)
-        st.caption("网页端与命令行共用同一套用例层与数据库。")
 
 
 def build_pages(items: Iterable[nav.NavItem]) -> list[st.Page]:

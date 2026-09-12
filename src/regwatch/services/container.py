@@ -19,6 +19,7 @@ from ..logging_setup import configure_logging
 from ..settings import Settings, get_settings
 from ..sources.http import HttpClient, RequestsHttpClient
 from .analyze import AnalysisService
+from .data_repair import DataRepairService
 from .jobs import JobManager, JobRunner
 from .llm_bridge import build_llm_factory
 from .org_type import OrgTypeService
@@ -43,6 +44,7 @@ class Services:
     org_type: OrgTypeService
     qa: QaService | None = None
     jobs: JobManager | None = None
+    data_repair: DataRepairService | None = None
 
     # ── 便捷属性 ──
 
@@ -103,6 +105,7 @@ def build_services(
     )
     org_type = OrgTypeService(store.cases, store.meta, llm, http=client, on_data_changed=touch)
     qa = QaService(llm, analysis)
+    data_repair = DataRepairService(store)
 
     services = Services(
         settings=resolved,
@@ -114,6 +117,7 @@ def build_services(
         summarization=summarization,
         org_type=org_type,
         qa=qa,
+        data_repair=data_repair,
     )
     # JobRunner 需要回指服务门面，因此任务管理器在构造后回填
     services.jobs = JobManager(store.tasks, JobRunner(services))

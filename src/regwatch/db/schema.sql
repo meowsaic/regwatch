@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS summaries (
     dataset           TEXT    NOT NULL,
     case_id           TEXT    NOT NULL,
     entity_type       TEXT    NOT NULL DEFAULT '',
+    punished_entity   TEXT    NOT NULL DEFAULT '',   -- 模型从正文识别的受处分主体全称
     violation_type    TEXT    NOT NULL DEFAULT '',   -- 原始多值字符串
     punishment        TEXT    NOT NULL DEFAULT '',
     punishment_date   TEXT    NOT NULL DEFAULT '',
