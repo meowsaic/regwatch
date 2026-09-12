@@ -1,0 +1,87 @@
+"""``db`` —— 数据库的初始化、导入导出与体检。
+
+用于在 JSON 布局与 SQLite 之间双向迁移：
+
+- ``db import``  旧 ``data/`` 布局 → SQLite（幂等、可重跑）
+- ``db export``  SQLite → 旧 ``data/`` 布局（便于回退或交付）
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Annotated
+
+import typer
+
+from ...db.transfer import DiskLayout, export_to_disk, import_from_disk
+from .. import resolve_services
+from ..common import console, print_kv
+
+app = typer.Typer(help="数据库维护", no_args_is_help=True)
+
+
+@app.command("init")
+def init() -> None:
+    """建库并升级到最新结构（已存在则只做升级）。"""
+    services = resolve_services()
+    services.store.meta.revision()
+    print_kv(
+        "数据库就绪", {"路径": str(services.store.path), "数据版本": services.store.revision()}
+    )
+
+
+@app.command("import")
+def import_json(
+    data_root: Annotated[
+        Path, typer.Option("--data-root", help="旧数据根目录（含 amac/ csrc/）")
+    ] = Path("data"),
+    datasets: Annotated[str, typer.Option("--datasets", help="all / amac / csrc")] = "all",
+) -> None:
+    """把旧 JSON 布局导入当前数据库。"""
+    from ...domain import Dataset
+
+    services = resolve_services()
+    layout = DiskLayout.from_data_root(data_root)
+    if not layout.amac_cases.is_dir() and not layout.csrc_cases.is_dir():
+        console.print(f"[yellow]未找到旧数据目录：{data_root}[/yellow]")
+        raise typer.Exit(1)
+
+    report = import_from_disk(
+        services.store.cases, services.store.summaries, layout, Dataset.parse_many(datasets)
+    )
+    services.store.touch()
+    print_kv("导入结果", report.as_dict())
+
+
+@app.command("export")
+def export_json(
+    out_root: Annotated[Path, typer.Option("--out", help="导出目录")] = Path("data_export"),
+    datasets: Annotated[str, typer.Option("--datasets", help="all / amac / csrc")] = "all",
+) -> None:
+    """把数据库导出为旧 JSON 布局。"""
+    from ...domain import Dataset
+
+    services = resolve_services()
+    counts = export_to_disk(
+        services.store.cases, services.store.summaries, out_root, Dataset.parse_many(datasets)
+    )
+    print_kv("导出结果", {"目录": str(out_root), **counts})
+
+
+@app.command("stats")
+def stats() -> None:
+    """打印库内规模与状态分布。"""
+    services = resolve_services()
+    totals = services.store.cases.totals()
+    console.print(json.dumps(totals, ensure_ascii=False, indent=2))
+    print_kv(
+        "库内概览",
+        {
+            "数据库": str(services.store.path),
+            "案例总数": totals.get("all", 0),
+            "正文条数": totals.get("bodies", 0),
+            "摘要条数": services.store.summaries.count(),
+            "数据版本": services.store.revision(),
+        },
+    )

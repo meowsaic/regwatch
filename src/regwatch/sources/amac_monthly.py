@@ -28,9 +28,10 @@ from aiohttp import ClientSession, TCPConnector
 from bs4 import BeautifulSoup, Tag
 from tqdm import tqdm
 
-from ..config import PROJECT_ROOT, Config, get_config
-from ..logutil import configure_logging, get_logger
-from ._html import as_tag, attr_str
+from ..logging_setup import configure_logging, get_logger
+from ..settings import PROJECT_ROOT
+from .common import parse_date_from_text, sanitize_filename
+from .htmlparse import as_tag, attr_str
 
 logger = get_logger("sources.amac_monthly")
 
@@ -61,12 +62,8 @@ DELAY_BETWEEN_PAGES = 1.0
 DELAY_BETWEEN_DOWNLOADS = 0.5
 
 
-def default_download_dir(config: Config | None = None) -> Path:
-    """PDF 公告的默认归档根目录（项目根下的 ``AMAC_Discipline_PDFs``）。
-
-    ``config`` 参数保留以统一调用签名，目前不参与解析。
-    """
-    del config  # 目前无需读取配置项
+def default_download_dir() -> Path:
+    """PDF 公告的默认归档根目录（项目根下的 ``AMAC_Discipline_PDFs``）。"""
     return PROJECT_ROOT / "AMAC_Discipline_PDFs"
 
 
@@ -109,28 +106,15 @@ def get_last_month_range() -> tuple[date, date]:
     return first_of_last_month.date(), last_of_last_month.date()
 
 
-def sanitize_filename(name: str) -> str:
-    """清理文件名中的非法字符"""
-    return re.sub(r'[\\/*?:"<>|]', "", name).strip()
-
-
-def extract_id_from_url(url: str) -> str:
-    """从 URL 中提取 ID"""
+def extract_pdf_id(url: str) -> str:
+    """从公告 PDF 链接中提取 ``P{20位}`` 编号；无匹配返回空串。"""
     match = re.search(r"(P\d{20,})", url)
     return match.group(1) if match else ""
 
 
-def parse_date_from_text(text: str) -> date | None:
-    """从文本中提取日期对象"""
-    match = re.search(r"(\d{4})\s*-\s*(\d{2})\s*-\s*(\d{2})", text)
-    if match:
-        return datetime(int(match.group(1)), int(match.group(2)), int(match.group(3))).date()
-    return None
-
-
 def generate_filename(pdf_url: str, raw_title: str) -> str:
     """生成最终文件名"""
-    pdf_id = extract_id_from_url(pdf_url)
+    pdf_id = extract_pdf_id(pdf_url)
     clean_title = re.sub(r"^\d{4}\s*-\s*\d{2}\s*-\s*\d{2}\s*", "", raw_title)
     clean_title = sanitize_filename(clean_title)
 
@@ -486,7 +470,6 @@ async def download_range(
     start_date: date,
     end_date: date,
     download_root: Path | None = None,
-    config: Config | None = None,
 ) -> dict[str, Any]:
     """下载指定日期范围内的 AMAC 纪律处分公告 PDF。
 
@@ -494,13 +477,11 @@ async def download_range(
         start_date: 起始日期（列表页按该日期过滤）。
         end_date: 结束日期。
         download_root: 归档根目录；默认 ``<项目根>/AMAC_Discipline_PDFs``。
-        config: 配置对象，默认使用全局单例。
 
     Returns:
         ``{"success": int, "failed": int, "start": str, "end": str, "dirs": {...}}``
     """
-    cfg = config or get_config()
-    root = Path(download_root) if download_root else default_download_dir(cfg)
+    root = Path(download_root) if download_root else default_download_dir()
     start_str, end_str = start_date.strftime("%Y%m%d"), end_date.strftime("%Y%m%d")
     started = datetime.now()
 
@@ -545,11 +526,18 @@ async def download_range(
 
 def download_last_month(
     download_root: Path | None = None,
-    config: Config | None = None,
+    *,
+    store: Any = None,
+    http: Any = None,
 ) -> dict[str, Any]:
-    """下载上一个自然月的 AMAC 纪律处分公告 PDF。"""
+    """下载上一个自然月的 AMAC 纪律处分公告 PDF。
+
+    ``store`` / ``http`` 仅为与其他采集器保持一致的调用签名，本模块使用
+    独立的异步会话下载 PDF，不消费这两个参数。
+    """
+    del store, http
     start_date, end_date = get_last_month_range()
-    return asyncio.run(download_range(start_date, end_date, download_root, config))
+    return asyncio.run(download_range(start_date, end_date, download_root))
 
 
 def main() -> None:  # pragma: no cover - 便于单文件调试

@@ -1,42 +1,50 @@
 """网页端数据加载层（带 Streamlit 缓存）。
 
-缓存策略：
+缓存键由两部分构成：数据版本号（``db revision``）+ 查询条件，
+因此任何写入都会让缓存自动失效，而无需再扫描目录 mtime。
 
-- 以 :func:`regwatch.storage.catalog_signature` 作为缓存键，数据变化后自动失效；
-- 列表与统计只读结构化字段，**不载入案例正文**；
-- 正文在用户展开详情时通过 :func:`load_case_text` 按需读取。
+业务一律走 :mod:`regwatch.services`；本模块只做缓存与字典化，
+不再自己实现一套筛选（历史上 ``filter_case_dicts`` 与 ``storage.filter_rows``
+两份并行，现已统一到 :class:`~regwatch.domain.CaseQuery`）。
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from pathlib import Path
 from typing import Any
 
 import streamlit as st
 
-from regwatch.analyze import analyze
-from regwatch.storage import (
-    DATASETS,
-    CaseRow,
-    build_all_catalogs,
-    build_catalog,
-    catalog_signature,
-    filter_rows,
-    read_case,
-    read_json,
-)
+from regwatch.domain import CaseQuery, CaseStatus, Dataset
+from regwatch.services import Services, get_services
+from regwatch.settings import Settings, get_settings
 
 __all__ = [
+    "bureau_options",
     "clamp_page",
     "clear_data_cache",
-    "filter_case_dicts",
-    "load_case_payload",
     "load_case_text",
+    "load_overview",
     "load_rows",
     "load_stats",
+    "services",
+    "settings",
+    "status_options",
     "violation_options",
 ]
+
+
+@st.cache_resource(show_spinner=False)
+def services() -> Services:
+    """进程内共享的服务门面（含数据库连接）。"""
+    return get_services()
+
+
+def settings() -> Settings:
+    return get_settings()
+
+
+def _revision() -> int:
+    return services().store.revision()
 
 
 def clamp_page(value: object, page_count: int) -> int:
@@ -49,31 +57,40 @@ def clamp_page(value: object, page_count: int) -> int:
     return max(1, min(page, count))
 
 
-@st.cache_data(ttl=300, show_spinner="正在载入案例清单…")
-def _load_catalog_cached(
-    datasets: tuple[str, ...], signature: tuple[Any, ...]
-) -> list[dict[str, Any]]:
-    rows: list[CaseRow] = []
-    for dataset in datasets:
-        rows.extend(build_catalog(dataset))
-    rows.sort(key=lambda row: (row.date, row.case_id), reverse=True)
-    return [row.to_dict() for row in rows]
+def cache_key(query: CaseQuery) -> tuple:
+    """把查询条件转成可哈希的缓存键。"""
+    return (
+        tuple(sorted(item.value for item in query.datasets)),
+        tuple(sorted(item.value for item in query.statuses)),
+        tuple(sorted(item.value for item in query.case_types)),
+        tuple(sorted(item.value for item in query.categories)),
+        tuple(sorted(query.violations)),
+        tuple(sorted(query.bureaus)),
+        tuple(sorted(query.entity_types)),
+        query.date_from or "",
+        query.date_to or "",
+        query.keyword or "",
+        query.fund_related_only,
+        query.limit,
+        query.offset,
+        query.order_by,
+        query.descending,
+    )
+
+
+@st.cache_data(ttl=300, show_spinner="正在载入案例…")
+def load_rows(query_key: tuple) -> list[dict[str, Any]]:
+    """按查询条件载入案例行（字典形式，不含正文）。"""
+    query = _query_from_key(query_key)
+    return [row.to_dict() for row in services().analysis.rows(query)]
 
 
 @st.cache_data(ttl=300, show_spinner="正在计算统计数据…")
-def _load_stats_cached(
-    datasets: tuple[str, ...],
-    signature: tuple[Any, ...],
-    date_from: str = "",
-    date_to: str = "",
-) -> dict[str, Any]:
-    rows: list[CaseRow] = []
-    for dataset in datasets:
-        rows.extend(build_catalog(dataset))
-    rows.sort(key=lambda row: (row.date, row.case_id), reverse=True)
-    if date_from or date_to:
-        rows = filter_rows(rows, date_from=date_from, date_to=date_to)
-    result = analyze(rows)
+def load_stats(query_key: tuple) -> dict[str, Any]:
+    """按查询条件聚合统计。"""
+    query = _query_from_key(query_key)
+    analysis = services().analysis
+    result = analysis.analyze_query(query)
     payload = result.to_json_payload()
     payload["comparison"] = result.stats["comparison"]
     payload["typical"] = {
@@ -83,132 +100,105 @@ def _load_stats_cached(
     return payload
 
 
-def _select(datasets: Sequence[str]) -> tuple[str, ...]:
-    selected = tuple(ds for ds in datasets if ds in DATASETS)
-    return selected or tuple(DATASETS)
-
-
-def load_rows(datasets: Sequence[str] = DATASETS, force: bool = False) -> list[dict[str, Any]]:
-    """载入案例清单（字典形式，不含正文）。"""
-    selected = _select(datasets)
-    if force:
-        build_all_catalogs(force=True)
-        _load_catalog_cached.clear()
-    return _load_catalog_cached(selected, catalog_signature(selected))
-
-
-def load_stats(
-    datasets: Sequence[str] = DATASETS,
-    date_from: str = "",
-    date_to: str = "",
-) -> dict[str, Any]:
-    """载入统计聚合结果（分布、对比、趋势、代表案例）。
-
-    ``date_from`` / ``date_to`` 为 ``YYYY-MM-DD``（含边界），可单独使用。
-    """
-    selected = _select(datasets)
-    return _load_stats_cached(selected, catalog_signature(selected), date_from or "", date_to or "")
-
-
-def load_case_text(case: dict[str, Any]) -> str:
-    """按需读取案例正文。"""
-    path = str(case.get("case_file") or "")
-    if path and Path(path).exists():
-        data = read_json(Path(path))
-        return str((data or {}).get("raw_text", ""))
-    data = read_case(
-        str(case.get("dataset", "")),
-        str(case.get("case_id", "")),
-        bureau=str(case.get("bureau", "")),
-        case_type=str(case.get("case_type", "")),
-        category=str(case.get("category", "")),
-    )
-    return str((data or {}).get("raw_text", ""))
-
-
-def load_case_payload(case: dict[str, Any]) -> dict[str, Any] | None:
-    """读取案例完整 JSON（含全部原始字段）。"""
-    path = str(case.get("case_file") or "")
-    if path and Path(path).exists():
-        return read_json(Path(path))
-    return read_case(
-        str(case.get("dataset", "")),
-        str(case.get("case_id", "")),
-        bureau=str(case.get("bureau", "")),
-        case_type=str(case.get("case_type", "")),
-        category=str(case.get("category", "")),
-    )
-
-
-def filter_case_dicts(
-    rows: Sequence[dict[str, Any]],
-    datasets: Sequence[str] = (),
-    entity_types: Sequence[str] = (),
-    violation_types: Sequence[str] = (),
-    statuses: Sequence[str] = (),
-    bureaus: Sequence[str] = (),
-    case_types: Sequence[str] = (),
-    date_from: str = "",
-    date_to: str = "",
-    keyword: str = "",
-    limit: int | None = None,
-) -> list[dict[str, Any]]:
-    """对字典清单做多维筛选（语义与 :func:`regwatch.storage.filter_rows` 一致）。"""
-    dataset_set = set(datasets)
-    entity_set = set(entity_types)
-    violation_set = set(violation_types)
-    status_set = set(statuses)
-    bureau_set = set(bureaus)
-    case_type_set = set(case_types)
-    needle = (keyword or "").strip().lower()
-
-    out: list[dict[str, Any]] = []
-    for item in rows:
-        if dataset_set and item.get("dataset") not in dataset_set:
-            continue
-        if entity_set and item.get("entity_type") not in entity_set:
-            continue
-        if status_set and item.get("status") not in status_set:
-            continue
-        if bureau_set and item.get("bureau") not in bureau_set:
-            continue
-        if case_type_set and item.get("case_type") not in case_type_set:
-            continue
-        if violation_set and not (violation_set & set(item.get("violation_types") or [])):
-            continue
-        date = str(item.get("date") or "")
-        if date_from and date and date < date_from:
-            continue
-        if date_to and date and date > date_to:
-            continue
-        if needle:
-            haystack = " ".join(
-                str(item.get(key, ""))
-                for key in ("title", "entity", "violation_summary", "involved_fund", "case_id")
-            ).lower()
-            if needle not in haystack:
-                continue
-        out.append(item)
-        if limit is not None and len(out) >= limit:
-            break
-    return out
+@st.cache_data(ttl=60, show_spinner=False)
+def load_overview(query_key: tuple) -> dict[str, Any]:
+    """纯 SQL 聚合的看板指标。"""
+    return services().analysis.overview(_query_from_key(query_key))
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def violation_options() -> list[str]:
-    """违规类型下拉选项（分类体系 + 数据中实际出现的类型）。"""
-    from regwatch.prompts import VIOLATION_TYPES
+    """违规类型下拉选项（分类体系 + 库内实际出现的类型）。"""
+    from regwatch.domain import VIOLATION_TYPES
 
     seen = list(VIOLATION_TYPES)
-    for row in build_all_catalogs():
-        for item in row.violation_types:
-            if item not in seen:
-                seen.append(item)
+    for item in services().summaries.violation_options():
+        if item not in seen:
+            seen.append(item)
     return seen
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def bureau_options() -> list[str]:
+    """来源局下拉选项。"""
+    rows = services().store.db.query(
+        "SELECT DISTINCT bureau FROM cases WHERE bureau <> '' ORDER BY bureau"
+    )
+    return [str(row["bureau"]) for row in rows]
+
+
+def status_options() -> list[str]:
+    """案例状态下拉选项。"""
+    return [status.value for status in CaseStatus]
+
+
+def load_case_text(dataset: str, case_id: str) -> str:
+    """按需读取案例正文（不进缓存，避免占内存）。"""
+    target = Dataset.parse(dataset)
+    if target is None:
+        return ""
+    return services().cases.get_body(target, case_id)
 
 
 def clear_data_cache() -> None:
     """手动清空数据缓存（任务完成后调用）。"""
-    _load_catalog_cached.clear()
-    _load_stats_cached.clear()
+    load_rows.clear()
+    load_stats.clear()
+    load_overview.clear()
     violation_options.clear()
+    bureau_options.clear()
+
+
+def _query_from_key(query_key: tuple) -> CaseQuery:
+    """把缓存键还原为 :class:`CaseQuery`。
+
+    缓存键与查询条件一一对应，这里按 :func:`_query_key` 的字段顺序重建。
+    """
+    (
+        datasets,
+        statuses,
+        case_types,
+        categories,
+        violations,
+        bureaus,
+        entity_types,
+        date_from,
+        date_to,
+        keyword,
+        fund_related_only,
+        limit,
+        offset,
+        order_by,
+        descending,
+    ) = query_key
+    return CaseQuery(
+        datasets=tuple(item for item in (Dataset.parse(v) for v in datasets) if item),
+        statuses=tuple(item for item in (CaseStatus.parse(v) for v in statuses) if item),
+        case_types=tuple(item for item in (_parse_case_type(v) for v in case_types) if item),
+        categories=tuple(item for item in (_parse_category(v) for v in categories) if item),
+        violations=violations,
+        bureaus=bureaus,
+        entity_types=entity_types,
+        date_from=date_from or None,
+        date_to=date_to or None,
+        keyword=keyword,
+        fund_related_only=fund_related_only,
+        limit=limit,
+        offset=offset,
+        order_by=order_by,
+        descending=descending,
+    )
+
+
+def _parse_case_type(value: str):
+    from regwatch.domain import CaseType
+
+    parsed = CaseType.parse(value)
+    return parsed if parsed not in (None, CaseType.UNKNOWN) else None
+
+
+def _parse_category(value: str):
+    from regwatch.domain import Category
+
+    parsed = Category.parse(value)
+    return parsed if parsed not in (None, Category.UNKNOWN) else None

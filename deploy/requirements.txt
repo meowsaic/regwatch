@@ -1,0 +1,25 @@
+# Streamlit Community Cloud 依赖清单
+#
+# 放在入口脚本（deploy/streamlit_app.py）同目录，优先级高于仓库根目录的 uv.lock；
+# 不要把它挪回仓库根目录，也不要在根目录再放一份重复的依赖文件。
+#
+# 本项目自身的代码由入口脚本把 src/ 加入 sys.path 后直接可用，
+# 因此这里不需要（也不建议）写 `-e .`。
+# 版本区间与 pyproject.toml 保持一致：默认依赖 + web extra。
+
+# ── 网页端（pyproject 的 web extra） ──
+streamlit>=1.51
+plotly>=5.24
+
+# ── 用例层 / 采集层 / 模型客户端（pyproject 的默认依赖） ──
+openai>=1.60
+typer>=0.12
+rich>=13.0
+pandas>=2.2
+requests>=2.32
+beautifulsoup4>=4.12
+aiohttp>=3.9
+pypdf>=4.0
+olefile>=0.47
+python-docx>=1.1
+tqdm>=4.66

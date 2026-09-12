@@ -1,16 +1,19 @@
-# ──────────────────────── 案例数据（体积巨大，不入库） ────────────────────────
-# 运行时数据统一在 data/ 下（cases / summaries / reports）
+# ──────────────────────── 运行时数据（体积巨大，不入库） ────────────────────────
+# SQLite 主库及其 WAL / 临时文件
 data/
-# 兼容：迁移完成前的旧布局
-AMAC/cases/
-AMAC/summaries/
-AMAC/reports/
-CSRC/cases/
-CSRC/summaries/
-CSRC/reports/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+# 云端按需下载数据库时的半成品文件（部署引导生成）
+*.download
 
-# AMAC 月度公告 PDF 下载目录（待人工外迁）
+# AMAC 月度公告 PDF 下载目录
 AMAC_Discipline_PDFs/
+
+# 分析与报告产物（本地保留，不入库）
+reports/
 
 # 归档专题中的数据导出（案例 JSON）
 docs/archive/**/*.json
@@ -36,12 +39,12 @@ env/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-
-# Compose Next / 隔离工作区
-.worktrees/
+.coverage
+htmlcov/
 
 # ──────────────────────── 本地配置（含密钥，仅 config.example.json 入库） ────────────────────────
 config.json
+config.json.*
 config.local.json
 *.local.json
 .streamlit/secrets.toml

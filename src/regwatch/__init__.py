@@ -1,41 +1,96 @@
 """regwatch —— AMAC 与证监会基金相关案例的采集、摘要与统计分析工具包。
 
+分层结构（依赖方向自上而下，越往下越稳定）::
+
+    交付层   cli/ 、 web/          只做参数解析与呈现
+    用例层   services/             业务编排，依赖注入
+    领域层   domain/               枚举、数据模型、分类体系（无 IO）
+    数据层   db/                   SQLite 连接 + 仓储
+
 模块导航：
 
-- :mod:`regwatch.config`     配置管理（数据路径、模型条目、任务映射）
-- :mod:`regwatch.llm`        统一 OpenAI 兼容模型客户端
-- :mod:`regwatch.datamodels` 数据模型（案例、摘要、任务）
-- :mod:`regwatch.logutil`    日志与任务日志缓冲
-- :mod:`regwatch.storage`    数据访问层
+- :mod:`regwatch.domain`     领域模型与枚举
+- :mod:`regwatch.settings`   配置（单一 SQLite 库路径、模型条目、任务绑定）
+- :mod:`regwatch.db`         SQLite 连接、迁移与四个仓储
+- :mod:`regwatch.llm`        OpenAI 兼容模型客户端
 - :mod:`regwatch.sources`    采集子包（AMAC / CSRC）
-- :mod:`regwatch.summarize`  结构化摘要提取
-- :mod:`regwatch.analyze`    统计聚合
-- :mod:`regwatch.report`     报告渲染
+- :mod:`regwatch.services`   用例层（摘要 / 统计 / 报告 / 机构类型 / 任务编排）
+- :mod:`regwatch.cli`        命令行入口
 """
 
 from __future__ import annotations
 
-from .config import Config, ConfigError, get_config, reset_config
-from .datamodels import ModelProfile, TaskRecord, TaskStatus
-from .llm import LLMClient, LLMError, get_llm, parse_json_response, reset_clients
-from .logutil import configure_logging, get_logger
+from importlib.metadata import PackageNotFoundError, version
 
-__version__ = "1.0.0"
+from .domain import (
+    CaseQuery,
+    CaseRecord,
+    CaseRow,
+    CaseStatus,
+    CaseType,
+    Category,
+    Dataset,
+    EntityType,
+    JobKind,
+    JobStatus,
+    ModelProfile,
+    SourceType,
+    SummaryRecord,
+    TaskRecord,
+    split_multi_value,
+)
+from .llm import (
+    ChatResult,
+    LLMClient,
+    LLMClientFactory,
+    LLMError,
+    parse_json_response,
+)
+from .logging_setup import bind_task, configure_logging, get_logger
+from .services import (
+    Services,
+    build_services,
+    get_services,
+    reset_services,
+)
+from .settings import ConfigError, Settings, get_settings, reset_settings
+
+try:  # 正常安装时由包元数据提供版本号
+    __version__ = version("regwatch")
+except PackageNotFoundError:  # pragma: no cover - 源码直跑时回退
+    __version__ = "0.0.0"
 
 __all__ = [
-    "Config",
+    "CaseQuery",
+    "CaseRecord",
+    "CaseRow",
+    "CaseStatus",
+    "CaseType",
+    "Category",
+    "ChatResult",
     "ConfigError",
+    "Dataset",
+    "EntityType",
+    "JobKind",
+    "JobStatus",
     "LLMClient",
+    "LLMClientFactory",
     "LLMError",
     "ModelProfile",
+    "Services",
+    "Settings",
+    "SourceType",
+    "SummaryRecord",
     "TaskRecord",
-    "TaskStatus",
     "__version__",
+    "bind_task",
+    "build_services",
     "configure_logging",
-    "get_config",
-    "get_llm",
     "get_logger",
+    "get_services",
+    "get_settings",
     "parse_json_response",
-    "reset_clients",
-    "reset_config",
+    "reset_services",
+    "reset_settings",
+    "split_multi_value",
 ]

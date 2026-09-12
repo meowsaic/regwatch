@@ -1,0 +1,275 @@
+"""摘要仓储：结构化摘要与多值违规类型。"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Iterable, Sequence
+from typing import Any
+
+from ...domain import (
+    CaseQuery,
+    CaseStatus,
+    Dataset,
+    SummaryRecord,
+    split_multi_value,
+)
+from ..connection import Database
+from ._filters import build_where
+
+logger = logging.getLogger("regwatch.db.summaries")
+
+__all__ = ["SummaryRepository"]
+
+_SUMMARY_COLUMNS: tuple[str, ...] = (
+    "dataset",
+    "case_id",
+    "entity_type",
+    "violation_type",
+    "punishment",
+    "punishment_date",
+    "involved_fund",
+    "violation_summary",
+    "legal_basis",
+    "penalty_amount",
+    "market_ban",
+    "extract_success",
+    "error",
+    "extract_time",
+    "llm_provider",
+    "llm_model",
+)
+
+_INSERT_SQL = f"""
+INSERT INTO summaries ({", ".join(_SUMMARY_COLUMNS)})
+VALUES ({", ".join("?" for _ in _SUMMARY_COLUMNS)})
+ON CONFLICT(dataset, case_id) DO UPDATE SET
+    {", ".join(f"{name} = excluded.{name}" for name in _SUMMARY_COLUMNS if name not in ("dataset", "case_id"))}
+"""
+
+
+class SummaryRepository:
+    """摘要与违规类型关联表的持久化。"""
+
+    def __init__(self, db: Database) -> None:
+        self._db = db
+
+    # ── 写入 ──
+
+    def _values(self, summary: SummaryRecord) -> tuple[Any, ...]:
+        return (
+            summary.dataset.value,
+            summary.case_id,
+            summary.entity_type,
+            summary.violation_type,
+            summary.punishment,
+            summary.punishment_date,
+            summary.involved_fund,
+            summary.violation_summary,
+            summary.legal_basis,
+            summary.penalty_amount,
+            summary.market_ban,
+            1 if summary.extract_success else 0,
+            summary.error,
+            summary.extract_time,
+            summary.llm_provider,
+            summary.llm_model,
+        )
+
+    def upsert(
+        self,
+        summary: SummaryRecord,
+        *,
+        status: CaseStatus | str | None = None,
+        note: str = "",
+    ) -> None:
+        """写入摘要，同步重建违规类型关联表，并可选更新案例状态。"""
+        if not summary.case_id:
+            raise ValueError("摘要缺少 case_id")
+
+        dataset = summary.dataset.value
+        violations = split_multi_value(summary.violation_type)
+
+        with self._db.transaction() as conn:
+            conn.execute(_INSERT_SQL, self._values(summary))
+            conn.execute(
+                "DELETE FROM case_violations WHERE dataset = ? AND case_id = ?",
+                (dataset, summary.case_id),
+            )
+            if violations:
+                conn.executemany(
+                    "INSERT INTO case_violations (dataset, case_id, violation) VALUES (?, ?, ?) "
+                    "ON CONFLICT DO NOTHING",
+                    [(dataset, summary.case_id, item) for item in violations],
+                )
+            if status is not None:
+                value = status.value if isinstance(status, CaseStatus) else str(status)
+                conn.execute(
+                    "UPDATE cases SET status = ?, status_note = ?, updated_at = datetime('now') "
+                    "WHERE dataset = ? AND case_id = ?",
+                    (value, note, dataset, summary.case_id),
+                )
+
+    def upsert_many(
+        self,
+        summaries: Iterable[SummaryRecord],
+        *,
+        status: CaseStatus | str | None = None,
+        batch_size: int = 500,
+    ) -> int:
+        """批量写入摘要，返回条数。"""
+        rows: list[tuple[Any, ...]] = []
+        links: list[tuple[str, str, str]] = []
+        status_rows: list[tuple[str, str, str]] = []
+        count = 0
+
+        with self._db.transaction() as conn:
+            for summary in summaries:
+                if not summary.case_id:
+                    continue
+                dataset = summary.dataset.value
+                rows.append(self._values(summary))
+                links.extend(
+                    (dataset, summary.case_id, item)
+                    for item in split_multi_value(summary.violation_type)
+                )
+                if status is not None:
+                    value = status.value if isinstance(status, CaseStatus) else str(status)
+                    status_rows.append((value, dataset, summary.case_id))
+                count += 1
+
+                if len(rows) >= batch_size:
+                    conn.executemany(_INSERT_SQL, rows)
+                    rows.clear()
+
+            if rows:
+                conn.executemany(_INSERT_SQL, rows)
+
+            if links:
+                keys = sorted({(item[0], item[1]) for item in links})
+                conn.executemany(
+                    "DELETE FROM case_violations WHERE dataset = ? AND case_id = ?", keys
+                )
+                conn.executemany(
+                    "INSERT INTO case_violations (dataset, case_id, violation) VALUES (?, ?, ?) "
+                    "ON CONFLICT DO NOTHING",
+                    links,
+                )
+
+            if status_rows:
+                conn.executemany(
+                    "UPDATE cases SET status = ?, status_note = '', "
+                    "updated_at = datetime('now') WHERE dataset = ? AND case_id = ?",
+                    status_rows,
+                )
+        return count
+
+    def delete(self, dataset: Dataset | str, case_id: str) -> bool:
+        cursor = self._db.execute(
+            "DELETE FROM summaries WHERE dataset = ? AND case_id = ?",
+            (_dataset_value(dataset), case_id),
+        )
+        self._db.execute(
+            "DELETE FROM case_violations WHERE dataset = ? AND case_id = ?",
+            (_dataset_value(dataset), case_id),
+        )
+        return bool(cursor.rowcount)
+
+    # ── 读取 ──
+
+    def get(self, dataset: Dataset | str, case_id: str) -> SummaryRecord | None:
+        row = self._db.query_one(
+            f"SELECT {', '.join(_SUMMARY_COLUMNS)} FROM summaries WHERE dataset = ? AND case_id = ?",
+            (_dataset_value(dataset), case_id),
+        )
+        return _summary_from_row(row) if row is not None else None
+
+    def get_many(self, dataset: Dataset | str, case_ids: Sequence[str]) -> dict[str, SummaryRecord]:
+        if not case_ids:
+            return {}
+        placeholders = ", ".join("?" for _ in case_ids)
+        sql = (
+            f"SELECT {', '.join(_SUMMARY_COLUMNS)} FROM summaries "
+            f"WHERE dataset = ? AND case_id IN ({placeholders})"
+        )
+        params: tuple[Any, ...] = (_dataset_value(dataset), *case_ids)
+        return {str(row["case_id"]): _summary_from_row(row) for row in self._db.query(sql, params)}
+
+    def exists(self, dataset: Dataset | str, case_id: str) -> bool:
+        return (
+            self._db.scalar(
+                "SELECT 1 FROM summaries WHERE dataset = ? AND case_id = ?",
+                (_dataset_value(dataset), case_id),
+            )
+            is not None
+        )
+
+    def violations_of(self, dataset: Dataset | str, case_id: str) -> tuple[str, ...]:
+        rows = self._db.query(
+            "SELECT violation FROM case_violations WHERE dataset = ? AND case_id = ? "
+            "ORDER BY violation",
+            (_dataset_value(dataset), case_id),
+        )
+        return tuple(str(row["violation"]) for row in rows)
+
+    def count(self, dataset: Dataset | str | None = None) -> int:
+        if dataset is None:
+            return int(self._db.scalar("SELECT COUNT(*) FROM summaries", default=0) or 0)
+        return int(
+            self._db.scalar(
+                "SELECT COUNT(*) FROM summaries WHERE dataset = ?",
+                (_dataset_value(dataset),),
+                default=0,
+            )
+            or 0
+        )
+
+    # ── 统计 ──
+
+    def violation_options(self, limit: int = 0) -> list[str]:
+        """全部出现过的违规类型（供筛选下拉）。"""
+        sql = "SELECT violation, COUNT(*) AS total FROM case_violations GROUP BY violation ORDER BY total DESC, violation ASC"
+        if limit > 0:
+            sql += " LIMIT ?"
+            rows = self._db.query(sql, (limit,))
+        else:
+            rows = self._db.query(sql)
+        return [str(row["violation"]) for row in rows]
+
+    def violation_distribution(self, query: CaseQuery) -> list[tuple[str, int]]:
+        """在给定筛选范围内统计违规类型分布（一个案例可计入多类）。"""
+        where, params = build_where(query)
+        sql = (
+            "SELECT v.violation AS value, COUNT(*) AS total "
+            "FROM case_violations v "
+            "JOIN cases c ON c.dataset = v.dataset AND c.case_id = v.case_id "
+            "LEFT JOIN summaries s ON s.dataset = c.dataset AND s.case_id = c.case_id "
+            f"WHERE {where} GROUP BY v.violation ORDER BY total DESC, value ASC"
+        )
+        return [
+            (str(row["value"]), int(row["total"])) for row in self._db.query(sql, tuple(params))
+        ]
+
+
+def _dataset_value(dataset: Dataset | str) -> str:
+    return dataset.value if isinstance(dataset, Dataset) else str(dataset)
+
+
+def _summary_from_row(row: Any) -> SummaryRecord:
+    return SummaryRecord(
+        dataset=str(row["dataset"]),
+        case_id=str(row["case_id"]),
+        entity_type=str(row["entity_type"] or ""),
+        violation_type=str(row["violation_type"] or ""),
+        punishment=str(row["punishment"] or ""),
+        punishment_date=str(row["punishment_date"] or ""),
+        involved_fund=str(row["involved_fund"] or ""),
+        violation_summary=str(row["violation_summary"] or ""),
+        legal_basis=str(row["legal_basis"] or ""),
+        penalty_amount=str(row["penalty_amount"] or ""),
+        market_ban=str(row["market_ban"] or ""),
+        extract_success=bool(row["extract_success"]),
+        error=str(row["error"] or ""),
+        extract_time=str(row["extract_time"] or ""),
+        llm_provider=str(row["llm_provider"] or ""),
+        llm_model=str(row["llm_model"] or ""),
+    )

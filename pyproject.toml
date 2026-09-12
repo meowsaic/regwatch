@@ -12,7 +12,6 @@ dependencies = [
   "openai>=1.60",
   "typer>=0.12",
   "rich>=13.0",
-  "textual>=0.80",
   "pandas>=2.2",
   "requests>=2.32",
   "beautifulsoup4>=4.12",
@@ -25,18 +24,20 @@ dependencies = [
 
 [project.optional-dependencies]
 web = [
-  "streamlit>=1.40",
+  # 1.51 起 st.plotly_chart 支持 width 参数（表格/按钮分别自 1.49/1.48 起）
+  "streamlit>=1.51",
   "plotly>=5.24",
 ]
 dev = [
   "ruff>=0.9",
   "mypy>=1.13",
+  "pytest>=8.0",
   "types-requests>=2.32",
   "types-beautifulsoup4>=4.12",
 ]
 
 [project.scripts]
-regwatch = "regwatch.cli:app"
+regwatch = "regwatch.cli.main:app"
 
 [project.urls]
 Homepage = "https://example.local/regwatch"
@@ -47,6 +48,26 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/regwatch"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/scripts",
+  "/README.md",
+  "/AGENTS.md",
+  "/config.example.json",
+  "/pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = [
+  "ignore::DeprecationWarning:pkg_resources",
+]
+log_cli_level = "WARNING"
 
 [tool.ruff]
 line-length = 100
@@ -91,7 +112,7 @@ line-ending = "auto"
 python_version = "3.11"
 files = ["src/regwatch"]
 exclude = ["src/regwatch/web/"]
-mypy_path = "src"
+mypy_path = "src"  # 历史遗留，配合 files 使用；CI 直接传 src/regwatch 亦可
 explicit_package_bases = true
 ignore_missing_imports = true
 warn_unused_configs = true
@@ -99,3 +120,15 @@ no_implicit_optional = true
 check_untyped_defs = false
 disallow_untyped_defs = false
 plugins = []
+
+# 记录类在 __post_init__ 里把数据库/磁盘读到的原始字符串归一化成枚举，
+# 这层「宽容构造」无法用类型注解表达，故对这些模块关闭 arg-type 检查。
+[[tool.mypy.overrides]]
+module = [
+  "regwatch.db.repositories.*",
+  "regwatch.db.jsonio",
+  "regwatch.sources.csrc.*",
+  "regwatch.sources.amac",
+  "regwatch.services.jobs",
+]
+disable_error_code = ["arg-type"]
