@@ -3,7 +3,7 @@ feature: webui-overhaul
 status: delivered
 updated: 2026-02-27
 branch: main
-commits: ab4699c..HEAD
+commits: ab4699ccd80a86fadc688bccb1207281a7937034..ed18cd9
 ---
 
 ## Amendment 2026-02-27b
