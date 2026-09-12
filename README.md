@@ -116,7 +116,9 @@ uv run regwatch info     # 环境概览
 | 数据与密钥 | 应用设置的 Secrets：`api_key_<模型ID>`、`database_url` |
 
 入口脚本负责三件事：把 `src/` 加入 `sys.path`（云端不会安装本项目）、把 Secrets
-桥接成 `REGWATCH_*` 环境变量、在库文件缺失时按需下载数据库。
+桥接成 `REGWATCH_*` 环境变量、在库文件缺失时按需下载数据库；同时**默认打开只读模式**
+（任务中心与「模型与配置」收起写操作，可用 `regwatch_admin_token` 解锁或
+`regwatch_read_only = "0"` 关闭）。
 完整步骤（含私有仓库限制、数据方案与排查表）见 [`docs/deploy/streamlit-cloud.md`](docs/deploy/streamlit-cloud.md)。
 
 ## 目录结构

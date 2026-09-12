@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import os
 import runpy
 import sys
 from pathlib import Path
@@ -31,6 +32,13 @@ from regwatch.web.cloud import prepare_runtime  # noqa: E402
 
 # 云端没有 config.json / data/regwatch.db，密钥与数据库都从应用 Secrets 注入
 prepare_runtime()
+
+# 云端默认只读：任务中心与「模型与配置」收起写操作，免得公开应用被陌生人
+# 当成免费算力或密钥探针（云端跑出来的数据也留不住）。
+# 需要自己在云端试跑时，在 Secrets 里配 regwatch_read_only = "0"，
+# 或配 regwatch_admin_token 在页面上解锁（见 web/access.py）。
+# 用 setdefault：Secrets 里的显式配置优先。
+os.environ.setdefault("REGWATCH_READ_ONLY", "1")
 
 # app.py 只在以脚本方式执行（__name__ == "__main__"）时才调用 main()，
 # 因此用 runpy 按脚本执行，而不是 import（import 会走模块内的 else 分支）。

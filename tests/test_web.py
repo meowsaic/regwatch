@@ -15,6 +15,14 @@ from regwatch.web.state import DEFAULTS, FILTER_KEYS
 #: 合法 SQLite 文件头（用于构造「看着像库」的假文件）
 SQLITE_HEADER = b"SQLite format 3\x00" + b"\x00" * 512
 
+#: 单独渲染某个视图的脚本（绕过 st.navigation，便于逐页断言）
+_VIEW_SCRIPT = """
+from regwatch.web.components import ui
+ui.apply_theme()
+from regwatch.web.views import {view}
+{view}.render()
+"""
+
 
 def test_app_path_exists() -> None:
     assert app_path().is_file()
@@ -38,6 +46,7 @@ def test_cloud_entry_runs_without_exception(monkeypatch: pytest.MonkeyPatch) -> 
     """部署入口（``deploy/streamlit_app.py``）在没有 config.json 与数据库时也能启动。
 
     这正是 Streamlit Community Cloud 上的初始状态：仓库里只有代码。
+    同时确认入口默认打开只读模式（写操作页面对外收起）。
     """
     pytest.importorskip("streamlit.testing.v1")
     from streamlit.testing.v1 import AppTest
@@ -46,12 +55,15 @@ def test_cloud_entry_runs_without_exception(monkeypatch: pytest.MonkeyPatch) -> 
     import regwatch.web.cloud as cloud
 
     monkeypatch.setattr(cloud, "_load_secrets", dict)
+    monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)
 
     entry = Path(__file__).resolve().parents[1] / "deploy" / "streamlit_app.py"
     assert entry.is_file(), f"缺少部署入口：{entry}"
     at = AppTest.from_file(str(entry), default_timeout=180)
     at.run()
     assert not at.exception, [str(item.value) for item in at.exception]
+    assert os.environ.get("REGWATCH_READ_ONLY") == "1", "云端入口应默认只读"
+    monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)  # 别影响后续用例
 
 
 class TestCloudBootstrap:
@@ -193,6 +205,66 @@ class TestCloudBootstrap:
 
         report = cloud.prepare_runtime({"database_url": "https://x/y.db"})
         assert report == {"env": (), "database": None, "error": "", "warning": ""}
+
+
+class TestReadOnlyMode:
+    """公开部署时的只读限制：写操作入口必须收起。"""
+
+    def _render(self, view: str):
+        pytest.importorskip("streamlit.testing.v1")
+        from streamlit.testing.v1 import AppTest
+
+        at = AppTest.from_string(_VIEW_SCRIPT.format(view=view), default_timeout=180)
+        at.run()
+        assert not at.exception, [str(item.value) for item in at.exception]
+        return at
+
+    def test_flag_parsing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from regwatch.web import access
+
+        for value in ("1", "true", "Yes", "ON"):
+            monkeypatch.setenv(access.READ_ONLY_ENV, value)
+            assert access.read_only() is True
+        for value in ("0", "false", "", "no"):
+            monkeypatch.setenv(access.READ_ONLY_ENV, value)
+            assert access.read_only() is False
+
+    def test_jobs_page_locked_in_read_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("REGWATCH_READ_ONLY", "1")
+        monkeypatch.delenv("REGWATCH_ADMIN_TOKEN", raising=False)
+
+        at = self._render("jobs")
+        # 「任务类型」下拉只属于提交表单，只读时不应出现
+        assert at.selectbox == []
+        assert [str(item.value) for item in at.info], "缺少只读说明"
+
+    def test_jobs_page_editable_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)
+
+        at = self._render("jobs")
+        assert len(at.selectbox) == 1
+
+    def test_settings_page_locked_in_read_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("REGWATCH_READ_ONLY", "1")
+        monkeypatch.delenv("REGWATCH_ADMIN_TOKEN", raising=False)
+
+        at = self._render("settings")
+        assert at.text_input == []  # 新增 / 更新模型的输入框全部收起
+        assert at.selectbox == []
+
+    def test_admin_token_unlocks(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("REGWATCH_READ_ONLY", "1")
+        monkeypatch.setenv("REGWATCH_ADMIN_TOKEN", "s3cret")
+
+        at = self._render("jobs")
+        assert at.selectbox == []
+
+        at.get_by_key("regwatch.admin-token").set_value("s3cret")
+        at.get_by_key("regwatch.admin-unlock").click()
+        at.run()
+
+        assert not at.exception, [str(item.value) for item in at.exception]
+        assert len(at.selectbox) == 1, "解锁后应恢复提交表单"
 
 
 class TestClampPage:

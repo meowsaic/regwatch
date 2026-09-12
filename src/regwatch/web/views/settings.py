@@ -5,7 +5,8 @@ from __future__ import annotations
 import streamlit as st
 
 from regwatch.domain import ModelProfile
-from regwatch.settings import TASK_KINDS, TASK_LABELS, ConfigError, store
+from regwatch.settings import TASK_KINDS, TASK_LABELS, ConfigError, Settings, store
+from regwatch.web import access
 from regwatch.web.components import ui
 from regwatch.web.components.data import services, settings
 
@@ -15,11 +16,13 @@ __all__ = ["render"]
 def render() -> None:
     ui.page_header("模型与配置", "OpenAI 兼容端点、任务绑定与数据路径")
 
+    editable = access.require_admin("settings")
+
     _render_paths()
 
     st.markdown("#### 模型条目")
     current = settings()
-    if not current.models:
+    if editable and not current.models:
         ui.callout("尚未配置任何模型，摘要与报告任务将无法执行。", tone="amber", icon="⚠")
 
     for profile in current.models:
@@ -34,12 +37,17 @@ def render() -> None:
                 if profile.note:
                     st.caption(profile.note)
             with right:
-                if st.button("测试连接", key=f"test-{profile.id}"):
+                # 只读模式下连「测试连接」也收起：它会带着密钥请求 base_url
+                if editable and st.button("测试连接", key=f"test-{profile.id}"):
                     _test(profile)
-                if st.button("删除", key=f"del-{profile.id}"):
+                if editable and st.button("删除", key=f"del-{profile.id}"):
                     store().delete_model(profile.id)
                     _refresh_models()
                     st.rerun()
+
+    if not editable:
+        _render_readonly_binding(current)
+        return
 
     with st.form("model-form", border=True):
         st.markdown("##### 新增 / 更新模型")
@@ -70,6 +78,30 @@ def _render_paths() -> None:
                 ("配置文件", cfg.source_path),
                 ("数据库", cfg.database),
                 ("报告目录", cfg.reports_dir),
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def _render_readonly_binding(current: Settings) -> None:
+    """只读模式下用纯文本展示绑定与并发，不渲染任何可写控件。"""
+    st.markdown("#### 任务与模型绑定")
+    st.markdown(
+        ui.detail_rows(
+            [
+                (TASK_LABELS.get(task, task), current.task_model(task) or "未绑定")
+                for task in TASK_KINDS
+            ]
+        ),
+        unsafe_allow_html=True,
+    )
+    st.markdown("#### 并发")
+    st.markdown(
+        ui.detail_rows(
+            [
+                ("抓取", current.concurrency_for("fetch", 8)),
+                ("摘要", current.concurrency_for("summarize", 5)),
             ]
         ),
         unsafe_allow_html=True,

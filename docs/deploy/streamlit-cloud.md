@@ -113,6 +113,8 @@ database_token = "ghp_xxx"   # 私有仓库 Release 资产需要
 |------------|----------|------|
 | `api_key_<id>` | `REGWATCH_API_KEY_<ID>` | 某个模型条目的 API Key（与本地用法一致） |
 | `regwatch_*` | 同名大写 | 如 `regwatch_database` → `REGWATCH_DATABASE` |
+| `regwatch_read_only` | `REGWATCH_READ_ONLY` | `"0"` 可关掉云端默认的只读模式（见第 5 节） |
+| `regwatch_admin_token` | `REGWATCH_ADMIN_TOKEN` | 页面解锁口令（见第 5 节） |
 | `database_url` | — | 库文件缺失时启动下载 |
 | `database_token` | — | 下载时带 `Authorization: Bearer`（GitHub 私有 Release 资产） |
 
@@ -209,11 +211,46 @@ git add -f data/regwatch-slim.db
 
 ---
 
-## 5. 故障排查
+## 5. 公开应用的权限边界（只读模式）
+
+云端实例是个「用完即弃的沙盒」：跑任务只写容器内的临时副本，不会回写 GitHub。
+因此 **`deploy/streamlit_app.py` 默认打开只读模式**（`REGWATCH_READ_ONLY=1`）：
+
+| 页面 | 只读时的表现 |
+|------|--------------|
+| 任务中心 | 不渲染提交表单，也不能取消任务；只保留任务列表 |
+| 模型与配置 | 只展示模型条目（密钥打码）、任务绑定、并发与路径；**隐藏**新增/删除/「测试连接」 |
+
+本地 `regwatch web` 完全不受影响（默认关闭只读）。
+
+为什么值得这么做（公开应用尤其要看）：
+
+- 「测试连接」会**带着密钥去请求 base_url**：不设防的话，陌生人可以把 base_url 改成自己的
+  服务器，再触发摘要任务，把你的 API Key 骗走；
+- 任何人都能提交抓取任务，白耗你的实例 CPU/带宽，并把共享实例的数据搅乱；
+- 陌生人能删改你的模型条目、任务绑定与并发设置。
+
+需要自己在云端试跑时，两种解锁方式（都在 Secrets 里配，保存后自动重启）：
+
+```toml
+# 方式一：整体关掉只读（公开应用慎用）
+regwatch_read_only = "0"
+
+# 方式二（推荐）：保留只读，配一个口令，页面上按需解锁
+regwatch_admin_token = "换成你自己的口令"
+```
+
+方式二下，「任务中心」「模型与配置」顶部会出现口令输入框；口令只放在浏览器会话里，
+不落盘、不进日志，服务重启或新开浏览器即失效。
+
+---
+
+## 6. 故障排查
 
 | 现象 | 原因与处理 |
 |------|------------|
 | 页面能打开但图表／列表为空 | 空库，见第 4 节；也可点侧边栏「刷新数据缓存」 |
+| 任务中心没有提交表单、配置页不能改 | 这是云端默认的**只读模式**，见第 5 节；本地运行时不会出现 |
 | 顶部提示「不是有效的 SQLite 库」 | 仓库里的库文件是 Git LFS 指针、但云端没拉到实体：确认 `.gitattributes` 已提交、本地 `git lfs pull` 后再推一次 |
 | `ModuleNotFoundError: plotly` / `No module named 'streamlit'` | 依赖解析走到了仓库根目录的 `uv.lock`，检查 Main file path 是否填的 `deploy/streamlit_app.py` |
 | `ModuleNotFoundError: regwatch` | 入口文件被换成了 `src/regwatch/web/app.py`，请改回 `deploy/streamlit_app.py` |
@@ -224,7 +261,7 @@ git add -f data/regwatch-slim.db
 
 ---
 
-## 6. 更新与下线
+## 7. 更新与下线
 
 - 改代码：`git push` 到**部署分支**即可，云端会「近乎实时」自动更新，没有开关；
   如果动到了 `deploy/requirements.txt`，它会自动做一次完整重建（慢一些）。

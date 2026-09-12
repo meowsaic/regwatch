@@ -6,6 +6,7 @@ import streamlit as st
 
 from regwatch.domain import JobKind, JobStatus
 from regwatch.services import JOB_SPECS, JobError
+from regwatch.web import access
 from regwatch.web.components import ui
 from regwatch.web.components.data import clear_data_cache, services
 from regwatch.web.state import get, set_value
@@ -19,13 +20,18 @@ def render() -> None:
     ui.page_header("任务中心", "网页端与命令行共用同一套任务编排")
 
     manager = services().jobs
+    editable = access.require_admin("jobs")
 
-    _render_submit(manager)
+    if editable:
+        _render_submit(manager)
 
     st.markdown("#### 任务列表")
     records = manager.jobs(limit=20)
     if not records:
-        ui.empty_state("暂无任务记录", "选择上方任务并提交即可开始。")
+        if editable:
+            ui.empty_state("暂无任务记录", "选择上方任务并提交即可开始。")
+        else:
+            ui.empty_state("只读模式", "云端不提供任务提交；更新数据请在本地运行后 push。")
         return
 
     for record in records:
@@ -44,7 +50,11 @@ def render() -> None:
                 if record.error:
                     st.error(record.error)
             with right:
-                if not record.status.is_finished and st.button("取消", key=f"cancel-{record.id}"):
+                if (
+                    editable
+                    and not record.status.is_finished
+                    and st.button("取消", key=f"cancel-{record.id}")
+                ):
                     manager.cancel(record.id)
                     st.rerun()
                 if st.button("日志", key=f"log-{record.id}"):
