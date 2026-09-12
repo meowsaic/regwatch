@@ -62,17 +62,26 @@ Secrets 里配了 `api_key_*`，等于把模型额度开放给陌生人；要公
 |------|-----|
 | Repository | `<你的账号>/regwatch` |
 | Branch | `main` |
-| **Main file path** | **`deploy/streamlit_app.py`** |
+| **Main file path** | 公开只读看板填 **`deploy/streamlit_public.py`**；自用私有部署填 `deploy/streamlit_app.py` |
 | Advanced settings → Python version | `3.11` 及以上（`pyproject.toml` 要求 `>=3.11`） |
 | Advanced settings → Secrets | 见第 3 节，可稍后补 |
 
-### 为什么入口是 `deploy/streamlit_app.py`
+### 两个入口怎么选
+
+| 入口 | 挂载的页面 | 适用场景 |
+|------|------------|----------|
+| **`deploy/streamlit_public.py`** | 总览看板 / 案例浏览 / 统计分析（**写死的三个只读页**） | 公开看板：不需要口令，也不存在被误配打开写操作的可能 |
+| `deploy/streamlit_app.py` | 五个页面；云端默认只读，可配 `regwatch_admin_token` 解锁 | 自用 / 私有部署，需要在云端临时跑任务（见第 5 节） |
+
+两个入口共用 `src/regwatch/web/shell.py` 与同一份依赖清单，改代码两边同时生效；
+本地 `uv run regwatch web` 完全不受影响（五个页面全开）。
+
+### 为什么入口必须放在 `deploy/` 目录
 
 两个坑都在这个目录选择上：
 
 1. **src 布局**：云端不会安装本项目（不能指望 `pip install -e .`），
-   所以入口脚本先把 `src/` 加进 `sys.path`，再委托给真正的应用
-   `regwatch/web/app.py`；
+   所以入口脚本先把 `src/` 加进 `sys.path`，再委托给 `regwatch/web/shell.py`；
 2. **依赖文件优先级**：Community Cloud 只会使用它找到的**第一个**依赖文件，
    查找顺序是「**入口脚本所在目录 → 仓库根目录**」，同一目录内的优先级为
    `uv.lock` > `Pipfile` > `environment.yml` > `requirements.txt` > `pyproject.toml`
@@ -86,7 +95,8 @@ Secrets 里配了 `api_key_*`，等于把模型额度开放给陌生人；要公
 想本地复现云端行为：
 
 ```powershell
-streamlit run deploy/streamlit_app.py
+streamlit run deploy/streamlit_public.py   # 公开入口：只有三个只读页面
+streamlit run deploy/streamlit_app.py      # 完整入口：五个页面（默认只读）
 ```
 
 ---
@@ -211,7 +221,10 @@ git add -f data/regwatch-slim.db
 
 ---
 
-## 5. 公开应用的权限边界（只读模式）
+## 5. 权限边界：只读模式与口令解锁（`deploy/streamlit_app.py` 专用）
+
+> 用 `deploy/streamlit_public.py` 部署的话，本节可以跳过：那条路根本没有这两个页面，
+> 也没有任何开关或口令需要记。
 
 云端实例是个「用完即弃的沙盒」：跑任务只写容器内的临时副本，不会回写 GitHub。
 因此 **`deploy/streamlit_app.py` 默认打开只读模式**（`REGWATCH_READ_ONLY=1`）：
@@ -253,7 +266,7 @@ regwatch_admin_token = "换成你自己的口令"
 | 现象 | 原因与处理 |
 |------|------------|
 | 页面能打开但图表／列表为空 | 空库，见第 4 节；也可点侧边栏「刷新数据缓存」 |
-| 侧边栏里看不到「任务中心」「模型与配置」 | 云端默认**只读模式**把它们从导航里隐藏了，见第 5 节；本地运行不会出现 |
+| 侧边栏里看不到「任务中心」「模型与配置」 | 两种情况：① 用 `streamlit_public.py` 部署（本来就只挂三页）；② 用 `streamlit_app.py` 且处于只读模式（见第 5 节）。本地运行不会出现 |
 | 顶部提示「不是有效的 SQLite 库」 | 仓库里的库文件是 Git LFS 指针、但云端没拉到实体：确认 `.gitattributes` 已提交、本地 `git lfs pull` 后再推一次 |
 | `ModuleNotFoundError: plotly` / `No module named 'streamlit'` | 依赖解析走到了仓库根目录的 `uv.lock`，检查 Main file path 是否填的 `deploy/streamlit_app.py` |
 | `ModuleNotFoundError: regwatch` | 入口文件被换成了 `src/regwatch/web/app.py`，请改回 `deploy/streamlit_app.py` |

@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 from . import access
 
-__all__ = ["DEFAULT_URL_PATH", "NAV_ITEMS", "NavItem", "visible_items"]
+__all__ = ["DEFAULT_URL_PATH", "NAV_ITEMS", "NavItem", "public_items", "visible_items"]
 
 #: 默认首页的 url_path
 DEFAULT_URL_PATH = "overview"
@@ -43,6 +43,11 @@ NAV_ITEMS: tuple[NavItem, ...] = (
 )
 
 
+def public_items() -> tuple[NavItem, ...]:
+    """只读页面（三个）：公开入口固定挂这几页，与开关和权限无关。"""
+    return tuple(item for item in NAV_ITEMS if not item.admin_only)
+
+
 def visible_items(admin: bool | None = None) -> tuple[NavItem, ...]:
     """按权限过滤导航项。
 
@@ -50,4 +55,4 @@ def visible_items(admin: bool | None = None) -> tuple[NavItem, ...]:
         admin: 显式指定权限（测试用）；留空时按 :func:`regwatch.web.access.is_admin`。
     """
     allowed = access.is_admin() if admin is None else admin
-    return tuple(item for item in NAV_ITEMS if allowed or not item.admin_only)
+    return NAV_ITEMS if allowed else public_items()

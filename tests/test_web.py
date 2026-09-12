@@ -66,6 +66,22 @@ def test_cloud_entry_runs_without_exception(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)  # 别影响后续用例
 
 
+def test_public_entry_runs_without_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    """公开入口（``deploy/streamlit_public.py``）的三个页面能正常启动。"""
+    pytest.importorskip("streamlit.testing.v1")
+    from streamlit.testing.v1 import AppTest
+
+    import regwatch.web.cloud as cloud
+
+    monkeypatch.setattr(cloud, "_load_secrets", dict)
+
+    entry = Path(__file__).resolve().parents[1] / "deploy" / "streamlit_public.py"
+    assert entry.is_file(), f"缺少公开入口：{entry}"
+    at = AppTest.from_file(str(entry), default_timeout=180)
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+
+
 class TestCloudBootstrap:
     """云端引导：Secrets 桥接与数据库按需下载。"""
 
@@ -276,6 +292,14 @@ class TestNavVisibility:
         monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)
         titles = [item.title for item in nav.visible_items()]
         assert titles == ["总览看板", "案例浏览", "统计分析", "任务中心", "模型与配置"]
+
+    def test_public_items_are_read_only_pages(self) -> None:
+        """公开入口的页面清单与权限开关无关，永远只有三页。"""
+        from regwatch.web import nav
+
+        titles = [item.title for item in nav.public_items()]
+        assert titles == ["总览看板", "案例浏览", "统计分析"]
+        assert all(not item.admin_only for item in nav.public_items())
 
     def test_admin_pages_hidden_in_read_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from regwatch.web import nav

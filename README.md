@@ -111,7 +111,7 @@ uv run regwatch info     # 环境概览
 
 | 部署项 | 值 |
 |--------|-----|
-| Main file path | `deploy/streamlit_app.py` |
+| Main file path | 公开只读看板：`deploy/streamlit_public.py`（只挂三个只读页）；自用私有：`deploy/streamlit_app.py`（五页，云端默认只读） |
 | 依赖清单 | `deploy/requirements.txt`（与入口同目录，避开根目录 `uv.lock` 的优先级） |
 | 数据与密钥 | 应用设置的 Secrets：`api_key_<模型ID>`、`database_url` |
 
