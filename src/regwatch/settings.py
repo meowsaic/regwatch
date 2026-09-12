@@ -54,11 +54,12 @@ DEFAULT_DATABASE = "data/regwatch.db"
 DEFAULT_REPORTS_DIR = "data/reports"
 DEFAULT_CONCURRENCY: dict[str, int] = {"fetch": 8, "summarize": 5}
 
-TASK_KINDS: tuple[str, ...] = ("summarize", "report", "vision")
+TASK_KINDS: tuple[str, ...] = ("summarize", "report", "vision", "qa")
 TASK_LABELS: dict[str, str] = {
     "summarize": "结构化摘要提取",
     "report": "报告合规建议撰写",
     "vision": "PDF 版式识别（视觉模型）",
+    "qa": "智能问答",
 }
 
 

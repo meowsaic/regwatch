@@ -37,6 +37,7 @@ NAV_ITEMS: tuple[NavItem, ...] = (
     NavItem("overview", "总览看板", "📊", DEFAULT_URL_PATH),
     NavItem("cases", "案例浏览", "🔍", "cases"),
     NavItem("statistics", "统计分析", "📈", "statistics"),
+    NavItem("qa", "智能问答", "💬", "qa"),
     NavItem("jobs", "任务中心", "⚙", "jobs", admin_only=True),
     # 模块名是 settings；views/__init__.py 里的 settings_view 只是对外别名
     NavItem("settings", "模型与配置", "🧩", "settings", admin_only=True),
@@ -44,7 +45,11 @@ NAV_ITEMS: tuple[NavItem, ...] = (
 
 
 def public_items() -> tuple[NavItem, ...]:
-    """只读页面（三个）：公开入口固定挂这几页，与开关和权限无关。"""
+    """只读页面：公开入口固定挂这几页，与开关和权限无关。
+
+    「智能问答」也公开可见，但非管理员必须在会话内自填 API 凭证，
+    不会消耗全局配置里的模型额度。
+    """
     return tuple(item for item in NAV_ITEMS if not item.admin_only)
 
 

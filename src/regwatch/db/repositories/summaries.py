@@ -11,7 +11,7 @@ from ...domain import (
     CaseStatus,
     Dataset,
     SummaryRecord,
-    split_multi_value,
+    canonical_violations,
 )
 from ..connection import Database
 from ._filters import build_where
@@ -82,12 +82,17 @@ class SummaryRepository:
         status: CaseStatus | str | None = None,
         note: str = "",
     ) -> None:
-        """写入摘要，同步重建违规类型关联表，并可选更新案例状态。"""
+        """写入摘要，同步重建违规类型关联表，并可选更新案例状态。
+
+        关联表存 **canonical 违规类型**（``normalize_violations`` 归一后），
+        因此筛选与统计口径跨数据集一致；``summaries.violation_type``
+        仍保留模型原文，便于回溯。
+        """
         if not summary.case_id:
             raise ValueError("摘要缺少 case_id")
 
         dataset = summary.dataset.value
-        violations = split_multi_value(summary.violation_type)
+        violations = canonical_violations(summary.violation_type)
 
         with self._db.transaction() as conn:
             conn.execute(_INSERT_SQL, self._values(summary))
@@ -130,7 +135,7 @@ class SummaryRepository:
                 rows.append(self._values(summary))
                 links.extend(
                     (dataset, summary.case_id, item)
-                    for item in split_multi_value(summary.violation_type)
+                    for item in canonical_violations(summary.violation_type)
                 )
                 if status is not None:
                     value = status.value if isinstance(status, CaseStatus) else str(status)
@@ -162,6 +167,31 @@ class SummaryRepository:
                     status_rows,
                 )
         return count
+
+    def rebuild_violations(self) -> int:
+        """按当前分类体系从 ``summaries.violation_type`` 重建违规类型关联表。
+
+        用于分类体系升级（合并同义类型、补充别名）后回填历史数据，
+        **不重新调用模型**；返回重建的摘要条数。
+        """
+        rows = self._db.query("SELECT dataset, case_id, violation_type FROM summaries")
+        links: list[tuple[str, str, str]] = []
+        for row in rows:
+            dataset = str(row["dataset"])
+            case_id = str(row["case_id"])
+            links.extend(
+                (dataset, case_id, item)
+                for item in canonical_violations(str(row["violation_type"] or ""))
+            )
+        with self._db.transaction() as conn:
+            conn.execute("DELETE FROM case_violations")
+            if links:
+                conn.executemany(
+                    "INSERT INTO case_violations (dataset, case_id, violation) VALUES (?, ?, ?) "
+                    "ON CONFLICT DO NOTHING",
+                    links,
+                )
+        return len(rows)
 
     def delete(self, dataset: Dataset | str, case_id: str) -> bool:
         cursor = self._db.execute(
@@ -226,7 +256,7 @@ class SummaryRepository:
     # ── 统计 ──
 
     def violation_options(self, limit: int = 0) -> list[str]:
-        """全部出现过的违规类型（供筛选下拉）。"""
+        """全部出现过的违规类型（canonical，供筛选下拉）。"""
         sql = "SELECT violation, COUNT(*) AS total FROM case_violations GROUP BY violation ORDER BY total DESC, violation ASC"
         if limit > 0:
             sql += " LIMIT ?"
@@ -236,7 +266,7 @@ class SummaryRepository:
         return [str(row["violation"]) for row in rows]
 
     def violation_distribution(self, query: CaseQuery) -> list[tuple[str, int]]:
-        """在给定筛选范围内统计违规类型分布（一个案例可计入多类）。"""
+        """在给定筛选范围内统计违规类型分布（canonical，一个案例可计入多类）。"""
         where, params = build_where(query)
         sql = (
             "SELECT v.violation AS value, COUNT(*) AS total "

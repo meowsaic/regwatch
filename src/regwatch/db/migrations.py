@@ -13,10 +13,12 @@ import logging
 import sqlite3
 from importlib.resources import files
 
+from ..domain import canonical_violations
+
 logger = logging.getLogger("regwatch.db")
 
 #: 当前 schema 版本；新增表或列时 +1 并把变更写进 :data:`MIGRATIONS`
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 __all__ = ["MIGRATIONS", "SCHEMA_VERSION", "ensure_schema", "load_schema_sql"]
 
@@ -56,8 +58,30 @@ def _create_initial_schema(conn: sqlite3.Connection) -> None:
     )
 
 
+def _backfill_canonical_violations(conn: sqlite3.Connection) -> None:
+    """v2：把 ``case_violations`` 从模型原始片段重建为 canonical 违规类型。
+
+    ``summaries.violation_type`` 保留的仍是模型原文，这里只重写关联表，
+    使筛选与统计口径统一（含跨数据集同义类型合并）。
+    """
+    rows = conn.execute("SELECT dataset, case_id, violation_type FROM summaries").fetchall()
+    conn.execute("DELETE FROM case_violations")
+    links: list[tuple[str, str, str]] = []
+    for dataset, case_id, violation_type in rows:
+        links.extend(
+            (str(dataset), str(case_id), item)
+            for item in canonical_violations(str(violation_type or ""))
+        )
+    if links:
+        conn.executemany(
+            "INSERT INTO case_violations (dataset, case_id, violation) VALUES (?, ?, ?) "
+            "ON CONFLICT DO NOTHING",
+            links,
+        )
+
+
 #: 迁移步骤：索引 ``i`` 处的函数把库从 ``user_version = i`` 升到 ``i + 1``
-MIGRATIONS: list = [_create_initial_schema]
+MIGRATIONS: list = [_create_initial_schema, _backfill_canonical_violations]
 
 
 def current_version(conn: sqlite3.Connection) -> int:

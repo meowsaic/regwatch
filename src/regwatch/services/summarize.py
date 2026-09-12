@@ -182,15 +182,28 @@ class SummarizationService:
         dataset: Dataset | str,
         *,
         retry_failed: bool = True,
+        include_done: bool = False,
         limit: int | None = None,
     ) -> list[CaseRecord]:
-        """列出待处理案例（只读索引，不载入正文）。"""
+        """列出待处理案例（只读索引，不载入正文）。
+
+        ``include_done=True`` 时把已完成案例一并纳入重跑（供提示词 / 分类体系
+        升级后的回填）；``skipped``（模型精判非基金相关）始终不重跑。
+        """
         target = Dataset.parse(dataset)
         if target is None:
             raise ValueError(f"未知数据集：{dataset}")
-        statuses: Sequence[CaseStatus] = (
-            (CaseStatus.PENDING, CaseStatus.FAILED) if retry_failed else (CaseStatus.PENDING,)
-        )
+        statuses: Sequence[CaseStatus]
+        if include_done:
+            statuses = (
+                (CaseStatus.DONE, CaseStatus.PENDING, CaseStatus.FAILED)
+                if retry_failed
+                else (CaseStatus.DONE, CaseStatus.PENDING)
+            )
+        else:
+            statuses = (
+                (CaseStatus.PENDING, CaseStatus.FAILED) if retry_failed else (CaseStatus.PENDING,)
+            )
         result: list[CaseRecord] = []
         for case in self._cases.iter_cases(target, statuses):
             result.append(case)
@@ -203,9 +216,12 @@ class SummarizationService:
         dataset: Dataset | str,
         *,
         retry_failed: bool = True,
+        include_done: bool = False,
         limit: int | None = None,
     ) -> Iterator[CaseRecord]:
-        yield from self.candidates(dataset, retry_failed=retry_failed, limit=limit)
+        yield from self.candidates(
+            dataset, retry_failed=retry_failed, include_done=include_done, limit=limit
+        )
 
     # ── 单条处理 ──
 
@@ -272,16 +288,19 @@ class SummarizationService:
         *,
         workers: int | None = None,
         retry_failed: bool = True,
+        include_done: bool = False,
         limit: int | None = None,
         on_progress: Callable[[int, int, str], None] | None = None,
     ) -> SummarizeResult:
-        """批量提取结构化摘要。"""
+        """批量提取结构化摘要（``include_done=True`` 时重跑已完成案例）。"""
         target = Dataset.parse(dataset)
         if target is None:
             raise ValueError(f"未知数据集：{dataset}")
 
         concurrency = max(1, int(workers or self._default_concurrency))
-        cases = self.candidates(target, retry_failed=retry_failed, limit=limit)
+        cases = self.candidates(
+            target, retry_failed=retry_failed, include_done=include_done, limit=limit
+        )
         result = SummarizeResult(dataset=target.value, total=len(cases))
         if not cases:
             logger.info("%s 没有待处理的案例", target.label)

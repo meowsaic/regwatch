@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from regwatch.domain import CaseStatus, CaseType, Dataset
+from regwatch.domain import CaseStatus, CaseType, Dataset, violation_label, violations_text
 from regwatch.web.components import ui
 from regwatch.web.components.data import (
     bureau_options,
@@ -84,6 +84,19 @@ def render() -> None:
     _render_detail(page_rows[chosen])
 
 
+def _violation_text(row: dict) -> str:
+    """案例行的违规类型展示串（归一后按数据集措辞，去掉模型输出的碎片）。"""
+    return violations_text(row.get("violation_type"), row.get("dataset")) or _EMPTY
+
+
+def _violation_format(value: str) -> str:
+    """违规类型下拉的展示文案：限定单数据集筛选时用该数据集的措辞。"""
+    datasets = get("datasets") or []
+    if len(datasets) == 1:
+        return violation_label(value, datasets[0])
+    return value
+
+
 def _rows_frame(rows: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(
         [
@@ -92,7 +105,7 @@ def _rows_frame(rows: list[dict]) -> pd.DataFrame:
                 "来源": row["dataset_label"] or _EMPTY,
                 "标题": row["title"] or _EMPTY,
                 "当事人": row["punished_entities"] or _EMPTY,
-                "违规类型": row["violation_type"] or _EMPTY,
+                "违规类型": _violation_text(row),
                 "处罚": row["punishment"] or _EMPTY,
                 "状态": row["status_label"] or _EMPTY,
             }
@@ -184,6 +197,7 @@ def _render_filters() -> None:
                     lambda: _multiselect(
                         "违规类型",
                         options=violation_options(),
+                        format_func=_violation_format,
                         default=get("violations", []),
                         key="cases-violations",
                     ),

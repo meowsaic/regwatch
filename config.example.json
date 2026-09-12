@@ -31,6 +31,7 @@
   "tasks": {
     "summarize": "deepseek",
     "report": "deepseek",
-    "vision": ""
+    "vision": "",
+    "qa": "deepseek"
   }
 }

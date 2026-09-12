@@ -63,6 +63,25 @@ class TestSchema:
         assert store.touch() == 1
         assert store.touch() == 2
 
+    def test_v2_upgrade_rebuilds_canonical_violations(self, seeded: DataStore) -> None:
+        """v1 → v2 升级：关联表里的旧口径片段被重建为 canonical 类型。"""
+        amac_id = seeded.cases.ids(Dataset.AMAC)[0]
+        with seeded.db.transaction() as conn:
+            conn.execute(
+                "UPDATE summaries SET violation_type = ? WHERE dataset = 'amac' AND case_id = ?",
+                ("适当性管理不到位", amac_id),
+            )
+            conn.execute("DELETE FROM case_violations")
+            conn.execute(
+                "INSERT INTO case_violations (dataset, case_id, violation) VALUES (?, ?, ?)",
+                ("amac", amac_id, "适当性管理不到位"),
+            )
+            conn.execute("PRAGMA user_version = 1")
+
+        assert ensure_schema(seeded.db.connect()) == 1
+        assert current_version(seeded.db.connect()) >= 2
+        assert seeded.summaries.violations_of(Dataset.AMAC, amac_id) == ("违规募集",)
+
 
 class TestCaseRepository:
     def test_upsert_stores_body_separately(self, store: DataStore, amac_case: CaseRecord) -> None:
@@ -158,6 +177,49 @@ class TestSummaryRepository:
             "违规募集",
             "信息披露违规",
         }
+
+    def test_violations_are_stored_as_canonical(
+        self, store: DataStore, amac_case: CaseRecord
+    ) -> None:
+        """关联表存 canonical 类型：模型输出的子项表述与跨数据集同义措辞都会归一。"""
+        store.cases.upsert(amac_case)
+        store.summaries.upsert(
+            SummaryRecord(
+                dataset=Dataset.AMAC,
+                case_id=amac_case.case_id,
+                violation_type="适当性管理不到位、未勤勉尽责",
+            ),
+            status=CaseStatus.DONE,
+        )
+        assert store.summaries.violations_of(Dataset.AMAC, amac_case.case_id) == (
+            "未尽勤勉尽责义务",
+            "违规募集",
+        )
+
+    def test_rebuild_violations_backfills_history(
+        self, store: DataStore, amac_case: CaseRecord
+    ) -> None:
+        """分类体系升级后 rebuild：不重新调用模型即可把历史关联表换成 canonical。"""
+        store.cases.upsert(amac_case)
+        store.summaries.upsert(
+            SummaryRecord(
+                dataset=Dataset.AMAC,
+                case_id=amac_case.case_id,
+                violation_type="适当性管理不到位",
+            ),
+            status=CaseStatus.DONE,
+        )
+        # 模拟历史数据：关联表里存的还是未归一的原始片段
+        with store.db.transaction() as conn:
+            conn.execute("DELETE FROM case_violations")
+            conn.execute(
+                "INSERT INTO case_violations (dataset, case_id, violation) VALUES (?, ?, ?)",
+                ("amac", amac_case.case_id, "适当性管理不到位"),
+            )
+
+        assert store.summaries.rebuild_violations() == 1
+        assert store.summaries.violations_of(Dataset.AMAC, amac_case.case_id) == ("违规募集",)
+        assert dict(store.summaries.violation_distribution(CaseQuery())) == {"违规募集": 1}
 
     def test_upsert_updates_case_status(self, store: DataStore, amac_case: CaseRecord) -> None:
         store.cases.upsert(amac_case)

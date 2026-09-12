@@ -5,6 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from regwatch.domain import violations_text
 from regwatch.web.components import charts, ui
 from regwatch.web.components.data import cache_key, load_overview, load_rows
 from regwatch.web.state import build_query
@@ -112,7 +113,7 @@ def render() -> None:
                 "来源": row["dataset_label"] or "—",
                 "标题": row["title"] or "—",
                 "当事人": row["punished_entities"] or "—",
-                "违规类型": row["violation_type"] or "—",
+                "违规类型": violations_text(row["violation_type"], row.get("dataset")) or "—",
                 "状态": row["status_label"] or "—",
             }
             for row in rows

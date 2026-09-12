@@ -108,7 +108,11 @@ def load_overview(query_key: tuple) -> dict[str, Any]:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def violation_options() -> list[str]:
-    """违规类型下拉选项（分类体系 + 库内实际出现的类型）。"""
+    """违规类型下拉选项（canonical 分类体系 + 库内实际出现的类型）。
+
+    选项值统一为 canonical 名，展示文案由调用方按数据集映射
+    （见 :func:`regwatch.domain.violation_label`）。
+    """
     from regwatch.domain import VIOLATION_TYPES
 
     seen = list(VIOLATION_TYPES)

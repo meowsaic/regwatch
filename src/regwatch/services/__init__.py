@@ -20,6 +20,7 @@ from .jobs import (
     describe_spec,
 )
 from .org_type import BackfillResult, OrgTypeService
+from .qa import QaRetrieval, QaService, QaTurn, build_evidence_pack
 from .reporting import ReportOutput, ReportService, save_report_files
 from .summarize import SummarizationService, SummarizeResult
 
@@ -36,12 +37,16 @@ __all__ = [
     "JobSpec",
     "OrgTypeService",
     "ParamSpec",
+    "QaRetrieval",
+    "QaService",
+    "QaTurn",
     "ReportOutput",
     "ReportService",
     "Services",
     "SummarizationService",
     "SummarizeResult",
     "analyze",
+    "build_evidence_pack",
     "build_services",
     "describe_spec",
     "get_services",

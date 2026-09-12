@@ -69,6 +69,22 @@ def export_json(
     print_kv("导出结果", {"目录": str(out_root), **counts})
 
 
+@app.command("rebuild-violations")
+def rebuild_violations() -> None:
+    """按当前分类体系重建违规类型关联表（不调用模型）。
+
+    分类体系升级（合并同义类型、补充别名）后执行一次，
+    即可让筛选与统计口径统一；``summaries.violation_type`` 原文不受影响。
+    """
+    services = resolve_services()
+    count = services.store.summaries.rebuild_violations()
+    services.store.touch()
+    print_kv(
+        "违规类型关联表重建完成",
+        {"摘要条数": count, "数据版本": services.store.revision()},
+    )
+
+
 @app.command("stats")
 def stats() -> None:
     """打印库内规模与状态分布。"""

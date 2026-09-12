@@ -291,14 +291,14 @@ class TestNavVisibility:
 
         monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)
         titles = [item.title for item in nav.visible_items()]
-        assert titles == ["总览看板", "案例浏览", "统计分析", "任务中心", "模型与配置"]
+        assert titles == ["总览看板", "案例浏览", "统计分析", "智能问答", "任务中心", "模型与配置"]
 
     def test_public_items_are_read_only_pages(self) -> None:
-        """公开入口的页面清单与权限开关无关，永远只有三页。"""
+        """公开入口的页面清单与权限开关无关；智能问答公开可见但强制 BYOK。"""
         from regwatch.web import nav
 
         titles = [item.title for item in nav.public_items()]
-        assert titles == ["总览看板", "案例浏览", "统计分析"]
+        assert titles == ["总览看板", "案例浏览", "统计分析", "智能问答"]
         assert all(not item.admin_only for item in nav.public_items())
 
     def test_admin_pages_hidden_in_read_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -308,7 +308,12 @@ class TestNavVisibility:
         monkeypatch.delenv("REGWATCH_ADMIN_TOKEN", raising=False)
 
         items = nav.visible_items()
-        assert [item.title for item in items] == ["总览看板", "案例浏览", "统计分析"]
+        assert [item.title for item in items] == [
+            "总览看板",
+            "案例浏览",
+            "统计分析",
+            "智能问答",
+        ]
         assert all(item.url_path not in {"jobs", "settings"} for item in items)
         assert items[0].url_path == nav.DEFAULT_URL_PATH  # 默认页始终在
 
@@ -663,3 +668,141 @@ ui.filter_summary(0, [])
     assert not at.exception
     assert any("命中 3" in (item.value or "") for item in at.markdown)
     assert any("未设置筛选条件" in (item.value or "") for item in at.markdown)
+
+
+def test_qa_page_renders_credentials_form(monkeypatch: pytest.MonkeyPatch) -> None:
+    """智能问答页：公开可见，Chat 输入与凭证表单齐备。"""
+    pytest.importorskip("streamlit.testing.v1")
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("REGWATCH_READ_ONLY", "1")
+    monkeypatch.delenv("REGWATCH_ADMIN_TOKEN", raising=False)
+
+    at = AppTest.from_string(_VIEW_SCRIPT.format(view="qa"), default_timeout=180)
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+    keys = {item.key for item in at.text_input}
+    assert "regwatch.qa.base_url" in keys
+    assert "regwatch.qa.model" in keys
+    assert "regwatch.qa.api_key" in keys
+    # 非管理员且无 Key：对话输入禁用
+    assert len(at.chat_input) == 1
+    assert at.chat_input[0].disabled is True
+    # 欢迎气泡
+    assert any("监管案例助手" in (item.value or "") for item in at.markdown)
+
+
+def test_qa_chat_submit_renders_answer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Chat 布局：提交后用户/助手消息可见，且答案旁有下载按钮。"""
+    pytest.importorskip("streamlit.testing.v1")
+    from streamlit.testing.v1 import AppTest
+
+    from regwatch.domain import QaIntent
+    from regwatch.services.qa import QaRetrieval, QaTurn
+
+    intent = QaIntent(keywords=("某某",))
+    retrieval = QaRetrieval(
+        intent=intent,
+        rows=(),
+        overview={"total": 0},
+        evidence="（无）",
+    )
+    turn = QaTurn(
+        mode="report",
+        question="某某基金处分专题",
+        answer="# 专题报告\n\n当前案例库证据不足。",
+        intent=intent,
+        retrieval=retrieval,
+        model="fake-model",
+        used_fallback_intent=False,
+    )
+
+    class _Qa:
+        @staticmethod
+        def ask(*_a: object, **_k: object) -> QaTurn:
+            return turn
+
+    class _Services:
+        qa = _Qa()
+
+    monkeypatch.setattr("regwatch.web.views.qa.services", lambda: _Services())
+    monkeypatch.setattr("regwatch.web.views.qa._resolve_client", lambda admin: (object(), "byok"))
+    monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)
+
+    at = AppTest.from_string(_VIEW_SCRIPT.format(view="qa"), default_timeout=180)
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+    assert at.chat_input[0].disabled is False
+
+    at.chat_input[0].set_value("某某基金处分专题")
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+    assert any("证据不足" in (item.value or "") for item in at.markdown)
+    labels = [item.label for item in at.download_button]
+    assert any("下载" in (label or "") for label in labels)
+    # 历史写入 session，重跑后仍以消息流展示
+    assert at.session_state["regwatch.qa.history"]
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+    assert any("证据不足" in (item.value or "") for item in at.markdown)
+
+
+def test_qa_answer_lists_cases_below(monkeypatch: pytest.MonkeyPatch) -> None:
+    """回归：问答/报告下方必须常显引用案例表（不再折叠隐藏）。"""
+    pytest.importorskip("streamlit.testing.v1")
+    from streamlit.testing.v1 import AppTest
+
+    from regwatch.domain import CaseRow, Dataset, QaIntent
+    from regwatch.services.qa import QaRetrieval, QaTurn
+
+    row = CaseRow(
+        dataset=Dataset.AMAC,
+        case_id="P20260101000000000001",
+        title="关于对某某基金管理有限公司的纪律处分",
+        date="2026-01-05",
+        punished_entities="某某基金管理有限公司",
+        violation_type="违规募集",
+        punishment="公开谴责",
+        source_url="https://example.com/case",
+    )
+    intent = QaIntent(keywords=("某某",))
+    retrieval = QaRetrieval(
+        intent=intent,
+        rows=(row,),
+        overview={"total": 1},
+        evidence="证据",
+        total_hits=1,
+    )
+    turn = QaTurn(
+        mode="qa",
+        question="某某基金",
+        answer="存在违规【案例1】。",
+        intent=intent,
+        retrieval=retrieval,
+        model="fake",
+        used_fallback_intent=False,
+    )
+
+    class _Qa:
+        @staticmethod
+        def ask(*_a: object, **_k: object) -> QaTurn:
+            return turn
+
+    class _Services:
+        qa = _Qa()
+
+    monkeypatch.setattr("regwatch.web.views.qa.services", lambda: _Services())
+    monkeypatch.setattr("regwatch.web.views.qa._resolve_client", lambda admin: (object(), "byok"))
+    monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)
+
+    at = AppTest.from_string(_VIEW_SCRIPT.format(view="qa"), default_timeout=180)
+    at.run()
+    at.chat_input[0].set_value("某某基金")
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+    assert any("引用案例" in (item.value or "") for item in at.markdown)
+    assert len(at.dataframe) >= 1
+    frame = at.dataframe[0].value
+    csv = frame.to_csv()
+    assert "某某基金管理有限公司" in csv
+    assert "https://example.com/case" in csv

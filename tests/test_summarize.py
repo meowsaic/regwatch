@@ -118,6 +118,19 @@ class TestSummarizeBatch:
         again = service.summarize(Dataset.AMAC)
         assert again.total == 0
 
+    def test_include_done_reruns_finished_cases(
+        self, store: DataStore, service: SummarizationService, amac_case: CaseRecord
+    ) -> None:
+        """提示词 / 分类体系升级后的回填入口：include_done 会重跑已完成案例。"""
+        service._llm.payload = AMAC_PAYLOAD  # type: ignore[union-attr]
+        store.cases.upsert(amac_case)
+        assert service.summarize(Dataset.AMAC).success == 1
+
+        rerun = service.summarize(Dataset.AMAC, include_done=True)
+        assert rerun.total == 1
+        assert rerun.success == 1
+        assert service.candidates(Dataset.AMAC, include_done=True)
+
     def test_limit_is_respected(
         self, store: DataStore, service: SummarizationService, amac_case: CaseRecord
     ) -> None:

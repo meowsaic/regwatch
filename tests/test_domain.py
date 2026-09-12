@@ -1,6 +1,8 @@
-"""领域层测试：枚举解析与数据模型的容错能力。"""
+"""领域层测试：枚举解析、数据模型容错与违规类型分类体系。"""
 
 from __future__ import annotations
+
+import pytest
 
 from regwatch.domain import (
     CaseQuery,
@@ -19,8 +21,13 @@ from regwatch.domain import (
 )
 from regwatch.domain.violations import (
     VIOLATION_TYPES,
+    VIOLATION_TYPES_AMAC,
+    VIOLATION_TYPES_CSRC,
     categorize_punishment,
     normalize_violations,
+    violation_candidates,
+    violation_label,
+    violations_text,
 )
 
 
@@ -118,6 +125,84 @@ class TestViolations:
         assert VIOLATION_TYPES[0] == "信息披露违规"
         assert "其他" in VIOLATION_TYPES
         assert len(set(VIOLATION_TYPES)) == len(VIOLATION_TYPES)
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("适当性管理不到位", "违规募集"),
+            ("未做适当性管理", "违规募集"),
+            ("承诺保本保收益", "违规募集"),
+            ("未及时更新备案信息", "未按规定备案"),
+            ("虚假记载", "信息披露违规"),
+            ("未设托管机构", "未按规定托管"),
+            ("操纵证券价格", "操纵市场"),
+            ("泄露内幕信息", "内幕交易"),
+            ("兼营与私募基金管理无关的业务", "非专业化运营"),
+            ("尽调不充分", "未尽勤勉尽责义务"),
+            ("办公场所不独立或不合规", "人员与场所违规"),
+            ("拒不配合协会检查", "未配合自律管理"),
+        ],
+    )
+    def test_normalize_alias_to_canonical(self, raw: str, expected: str) -> None:
+        """提示词里的子项 / 别名表述必须归一到 canonical 类型。"""
+        assert normalize_violations(raw) == [expected]
+
+    def test_normalize_merges_cross_dataset_synonyms(self) -> None:
+        """CSRC 与 AMAC 的同义措辞归一到同一 canonical，跨数据集统计不再分裂。"""
+        assert normalize_violations("未勤勉尽责") == ["未尽勤勉尽责义务"]
+        assert normalize_violations("未配合监管") == ["未配合自律管理"]
+
+    def test_normalize_splits_colon_and_middle_dot(self) -> None:
+        assert normalize_violations("违规募集：向不合格投资者募集") == ["违规募集"]
+        assert normalize_violations("未配合自律管理·未持续符合登记条件·未按规定备案") == [
+            "未配合自律管理",
+            "未持续符合登记条件",
+            "未按规定备案",
+        ]
+
+    def test_other_requires_exact_match(self) -> None:
+        """「其他」是短词，只能精确匹配，避免「其他情形」被误判。"""
+        assert normalize_violations("其他") == ["其他"]
+        assert normalize_violations("其他情形") == ["其他情形"]
+
+    def test_candidates_follow_dataset_scope(self) -> None:
+        assert violation_candidates("amac") == VIOLATION_TYPES_AMAC
+        assert violation_candidates("csrc") == VIOLATION_TYPES_CSRC
+        assert "操纵市场" not in VIOLATION_TYPES_AMAC
+        assert "内幕交易" not in VIOLATION_TYPES_AMAC
+        # CSRC 侧补齐私募特有类型，避免案例因提示词缺项而漏采
+        for name in ("未按规定估值", "非专业化运营", "人员与场所违规", "未持续符合登记条件"):
+            assert name in VIOLATION_TYPES_CSRC
+
+    def test_label_by_dataset(self) -> None:
+        assert violation_label("未尽勤勉尽责义务", Dataset.CSRC) == "未勤勉尽责"
+        assert violation_label("未尽勤勉尽责义务", Dataset.AMAC) == "未尽勤勉尽责义务"
+        # 别名同样可以映射到展示名
+        assert violation_label("未配合监管", Dataset.AMAC) == "未配合自律管理"
+
+    def test_violations_text_normalizes_and_labels(self) -> None:
+        assert (
+            violations_text("适当性管理不到位、未勤勉尽责", Dataset.CSRC) == "违规募集、未勤勉尽责"
+        )
+        assert violations_text("") == ""
+
+
+class TestPromptCoverage:
+    """提取提示词的候选类型由分类体系派生，两者不得脱节。"""
+
+    def test_extract_prompts_cover_candidates(self) -> None:
+        from regwatch.prompts import AMAC_EXTRACT_PROMPT, CSRC_EXTRACT_PROMPT
+
+        for name in VIOLATION_TYPES_AMAC:
+            assert name in AMAC_EXTRACT_PROMPT, f"AMAC 提示词缺少候选类型：{name}"
+        for name in VIOLATION_TYPES_CSRC:
+            assert name in CSRC_EXTRACT_PROMPT, f"CSRC 提示词缺少候选类型：{name}"
+
+    def test_qa_intent_prompt_lists_all_types(self) -> None:
+        from regwatch.prompts import QA_INTENT_PROMPT
+
+        for name in VIOLATION_TYPES:
+            assert name in QA_INTENT_PROMPT
 
 
 class TestHelpers:

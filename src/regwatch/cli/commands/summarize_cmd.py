@@ -21,6 +21,13 @@ def summarize(
     workers: Annotated[int, typer.Option("--workers", help="并发数，0=取配置默认值")] = 0,
     limit: Annotated[int, typer.Option("--limit", help="最多处理多少条，0=不限")] = 0,
     retry_failed: Annotated[bool, typer.Option("--retry-failed/--no-retry-failed")] = True,
+    redo: Annotated[
+        bool,
+        typer.Option(
+            "--redo",
+            help="连同已完成案例一起重跑（提示词 / 分类体系升级后回填用，会再次消耗模型额度）",
+        ),
+    ] = False,
 ) -> None:
     """对案例调用大模型提取结构化字段。"""
     services = resolve_services()
@@ -53,6 +60,7 @@ def summarize(
                 target,
                 workers=workers or None,
                 retry_failed=retry_failed,
+                include_done=redo,
                 limit=limit or None,
                 on_progress=hook,
             )

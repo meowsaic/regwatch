@@ -22,6 +22,7 @@ from .analyze import AnalysisService
 from .jobs import JobManager, JobRunner
 from .llm_bridge import build_llm_factory
 from .org_type import OrgTypeService
+from .qa import QaService
 from .reporting import ReportService
 from .summarize import SummarizationService
 
@@ -40,6 +41,7 @@ class Services:
     reporting: ReportService
     summarization: SummarizationService
     org_type: OrgTypeService
+    qa: QaService | None = None
     jobs: JobManager | None = None
 
     # ── 便捷属性 ──
@@ -100,6 +102,7 @@ def build_services(
         on_data_changed=touch,
     )
     org_type = OrgTypeService(store.cases, store.meta, llm, http=client, on_data_changed=touch)
+    qa = QaService(llm, analysis)
 
     services = Services(
         settings=resolved,
@@ -110,6 +113,7 @@ def build_services(
         reporting=reporting,
         summarization=summarization,
         org_type=org_type,
+        qa=qa,
     )
     # JobRunner 需要回指服务门面，因此任务管理器在构造后回填
     services.jobs = JobManager(store.tasks, JobRunner(services))

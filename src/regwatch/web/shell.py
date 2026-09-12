@@ -5,7 +5,7 @@
 - ``src/regwatch/web/app.py``：本地 ``regwatch web`` 用，按权限挂
   :func:`regwatch.web.nav.visible_items`（五个页面）；
 - ``deploy/streamlit_public.py``：云端公开部署用，固定只挂
-  :func:`regwatch.web.nav.public_items`（三个只读页面）。
+  :func:`regwatch.web.nav.public_items`（总览/案例/统计/智能问答）。
 
 调用顺序有讲究：入口脚本**必须先调 :func:`configure_page`**（``st.set_page_config``
 要是脚本里的第一条 Streamlit 命令），再去做下载数据库之类会渲染 spinner 的准备工作，

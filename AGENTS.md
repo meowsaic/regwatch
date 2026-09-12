@@ -45,6 +45,7 @@ src/regwatch/
 | 任务编排 | `services.jobs.submit(JobKind.SUMMARIZE, params)`；参数规格见 `services.JOB_SPECS` |
 | 模型客户端 | `services.llm.client(task="summarize")` |
 | 旧布局导入 | `regwatch db import --data-root data` 或 `scripts/migrate_to_sqlite.py` |
+| 回填违规类型关联表 | `regwatch db rebuild-violations`（分类体系升级后执行，不调用模型） |
 
 ---
 
@@ -69,7 +70,7 @@ config.json                  本地配置（含密钥，gitignore，首次运行
 ```
 
 核心表：`cases`（统一案例，主键 `(dataset, case_id)`）、`case_bodies`（`raw_text` 单独存放）、
-`summaries`、`case_violations`（多值违规类型关联表）、`tasks` / `task_logs`、
+`summaries`、`case_violations`（违规类型关联表，存 **canonical** 类型）、`tasks` / `task_logs`、
 `org_type_cache` / `fetch_state`。
 
 ### 1.2 关键字段速查
@@ -98,19 +99,31 @@ CSRC 专属 `case_type`(penalty/measure)、`bureau`、`document_number`、`punis
 
 ## 2. 违规类型分类体系
 
-统一维护在 `src/regwatch/domain/violations.py`（**改动会影响历史报告可比性，需同步本节**），
-多值字段用顿号 `、` 分隔，由 `split_multi_value` 拆分：
+**单一权威来源**：`src/regwatch/domain/violations.py` 的 `_VIOLATION_DEFS`（18 类 canonical，
+**改动会影响历史报告可比性，需同步本节**）。要点：
 
-- **募集行为类**：违规募集、未按规定备案、登记信息失实
-- **投资运作类**：违规投资运作、挪用基金财产、违规关联交易、未按规定托管、未按规定估值
-- **管理人义务类**：非专业化运营、未尽勤勉尽责义务（CSRC 侧写作「未勤勉尽责」）
-- **内部治理类**：内控缺失、人员与场所违规、未持续符合登记条件
-- **信息披露与自律类**：信息披露违规、未配合自律管理（CSRC 为「未配合监管」）
-- **CSRC 独有**：操纵市场、内幕交易
-- **其他**
+- 每个类型带 `aliases`（模型常输出的子项 / 异名，如「适当性管理不到位」→ 违规募集、
+  「操纵证券价格」→ 操纵市场）与 `datasets`（适用数据集）；
+  两套提取提示词的候选清单由 `violation_candidates(dataset)` 派生，**不再手工维护两份列表**，
+  回归测试 `TestPromptCoverage` 保证提示词与清单不脱节；
+- AMAC / CSRC 同义措辞归一到同一 canonical：「未尽勤勉尽责义务」= CSRC「未勤勉尽责」、
+  「未配合自律管理」= CSRC「未配合监管」；展示时用 `violation_label(name, dataset)` 还原文书措辞；
+- `case_violations` 落库存 canonical（`canonical_violations()` 归一，过滤「未分类」），
+  `summaries.violation_type` 保留模型原文；归一还兼容中点 `·` 与「类型：子项」冒号写法；
+- 分组速览（canonical 名）：
+  - **募集行为类**：违规募集、未按规定备案、登记信息失实
+  - **投资运作类**：违规投资运作、挪用基金财产、违规关联交易、未按规定托管、未按规定估值
+  - **管理人义务类**：非专业化运营、未尽勤勉尽责义务
+  - **内部治理类**：内控缺失、人员与场所违规、未持续符合登记条件
+  - **信息披露与自律类**：信息披露违规、未配合自律管理
+  - **CSRC 独有**：操纵市场、内幕交易
+  - **其他**
 
 分类要点：`非专业化运营` 专指兼营无关业务；`未尽勤勉尽责义务` 专指管理职责缺失；
 `内控缺失` 专指内控制度本身不健全；`登记信息失实` 与 `未按规定备案` 相互区分。
+
+> 升级分类体系（改别名 / 合并类型）后执行 `regwatch db rebuild-violations` 回填关联表；
+> 提示词候选变化需重跑摘要时用 `regwatch summarize --dataset csrc --redo`（会消耗模型额度）。
 
 ---
 
@@ -135,7 +148,7 @@ CSRC 专属 `case_type`(penalty/measure)、`bureau`、`document_number`、`punis
 | 分析某局（如 Beijing） | `CaseQuery(datasets=(Dataset.CSRC,), bureaus=("Beijing",))` |
 | 某违规类型全部案例 | `CaseQuery(violations=("挪用基金财产",))`（多类型为「或」语义） |
 | 生成季度报告 | `regwatch report --dataset amac --start ... --end ... --llm` |
-| 补充/重跑摘要 | `regwatch summarize --dataset csrc --workers 5` |
+| 补充/重跑摘要 | `regwatch summarize --dataset csrc --workers 5`（`--redo` 连同已完成案例一起重跑，用于提示词升级后回填） |
 | 补机构类型 | `regwatch org-type` / `regwatch org-type --interactive` |
 | 撰写新分析 | 参考 `data/*/reports/*.md` 结构与 `services/reporting.py` 的渲染函数 |
 

@@ -62,6 +62,7 @@ uv run regwatch --help
 uv run regwatch db init                       # 建库 / 升级结构
 uv run regwatch db import --data-root data    # 旧 JSON 布局导入
 uv run regwatch db export --out data_export   # 导出为旧 JSON 布局
+uv run regwatch db rebuild-violations         # 分类体系升级后回填违规类型关联表（不调用模型）
 uv run regwatch db stats                      # 规模与状态分布
 
 # 抓取
@@ -72,6 +73,7 @@ uv run regwatch fetch url --url <案例链接> --dataset amac
 
 # 摘要与报告
 uv run regwatch summarize --dataset all --workers 5
+uv run regwatch summarize --dataset csrc --redo    # 提示词 / 分类体系升级后重跑已完成案例
 uv run regwatch report --dataset amac --start 2026-01-01 --end 2026-03-31 --llm
 
 # 机构登记类型回填

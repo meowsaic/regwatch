@@ -21,6 +21,7 @@ from regwatch.services import (
     JobManager,
     JobRunner,
     OrgTypeService,
+    QaService,
     ReportService,
     Services,
     SummarizationService,
@@ -153,6 +154,7 @@ def services(store: DataStore, settings: Settings, fake_llm: FakeLLM, http: Fake
         reporting=ReportService(analysis, fake_llm),
         summarization=summarizing,
         org_type=OrgTypeService(store.cases, store.meta, fake_llm, http=http, request_delay=0),
+        qa=QaService(fake_llm, analysis),
         jobs=None,  # type: ignore[arg-type] - 下方回填
     )
     bundle.jobs = JobManager(store.tasks, JobRunner(bundle))

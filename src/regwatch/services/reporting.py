@@ -21,8 +21,12 @@ from pathlib import Path
 from typing import Any
 
 from ..clock import now_iso
-from ..domain import CaseQuery, CaseStatus, Dataset
-from ..domain.violations import advice_for
+from ..domain import CaseQuery, CaseRow, CaseStatus, Dataset
+from ..domain.violations import (
+    advice_for,
+    violation_label,
+    violations_text,
+)
 from ..llm import LLMClientFactory, LLMError
 from ..logging_setup import get_logger
 from ..prompts import COMPLIANCE_ADVICE_PROMPT
@@ -62,6 +66,16 @@ def _pct(part: int, whole: int) -> float:
     return part / whole * 100 if whole else 0.0
 
 
+def _display(name: str, dataset: Dataset | None) -> str:
+    """违规类型的报告展示名（按数据集措辞，如 CSRC 写「未勤勉尽责」）。"""
+    return violation_label(name, dataset)
+
+
+def _row_violation_text(row: CaseRow, dataset: Dataset | None) -> str:
+    """把单条案例的违规类型原文归一后按数据集措辞展示（合并碎片、去重）。"""
+    return violations_text(row.violation_type, dataset) or "—"
+
+
 def _render_overview(result: AnalysisResult, period_label: str, dataset_label: str) -> str:
     basic = result.basic
     total = basic["total"]
@@ -96,7 +110,7 @@ def _render_overview(result: AnalysisResult, period_label: str, dataset_label: s
     return "\n".join(lines)
 
 
-def _render_violation(result: AnalysisResult) -> str:
+def _render_violation(result: AnalysisResult, dataset: Dataset | None = None) -> str:
     violation = result.violation
     total = result.basic["total"]
     lines = [
@@ -108,7 +122,9 @@ def _render_violation(result: AnalysisResult) -> str:
         "|------|----------|------------|------|",
     ]
     for rank, (vtype, count) in enumerate(violation["ranked"], 1):
-        lines.append(f"| {rank} | {vtype} | {count} | {_pct(count, total):.1f}% |")
+        lines.append(
+            f"| {rank} | {_display(vtype, dataset)} | {count} | {_pct(count, total):.1f}% |"
+        )
 
     lines += [
         "",
@@ -119,7 +135,7 @@ def _render_violation(result: AnalysisResult) -> str:
     if violation["ranked"]:
         top_name, top_count = violation["ranked"][0]
         lines.append(
-            f"最突出的违规类型为 **{top_name}**，涉及 {top_count} 例，"
+            f"最突出的违规类型为 **{_display(top_name, dataset)}**，涉及 {top_count} 例，"
             f"占全部案例的 {_pct(top_count, total):.1f}%。"
         )
     lines.append("")
@@ -156,7 +172,7 @@ def _render_punishment(result: AnalysisResult) -> str:
     return "\n".join(lines)
 
 
-def _render_comparison(result: AnalysisResult) -> str:
+def _render_comparison(result: AnalysisResult, dataset: Dataset | None = None) -> str:
     comparison = result.stats["comparison"]
     lines = [
         "## 四、机构 vs 个人对比",
@@ -174,7 +190,9 @@ def _render_comparison(result: AnalysisResult) -> str:
         reverse=True,
     )
     for vtype in all_types:
-        lines.append(f"| {vtype} | {inst.get(vtype, 0)} | {pers.get(vtype, 0)} |")
+        lines.append(
+            f"| {_display(vtype, dataset)} | {inst.get(vtype, 0)} | {pers.get(vtype, 0)} |"
+        )
 
     lines += ["", "### 4.2 处罚措施对比", "", "**机构处罚 TOP5：**", ""]
     for name, count in comparison["inst_punishments"].items():
@@ -232,10 +250,10 @@ def _render_compliance(advice: str) -> str:
     return "\n".join(["## 七、合规建议", "", advice, ""])
 
 
-def _render_default_compliance(result: AnalysisResult) -> str:
+def _render_default_compliance(result: AnalysisResult, dataset: Dataset | None = None) -> str:
     lines = ["## 七、合规建议", "", "### 针对性防控建议", ""]
     for vtype, count in result.violation["ranked"][:5]:
-        lines.append(f"**{vtype}**（{count} 例）：")
+        lines.append(f"**{_display(vtype, dataset)}**（{count} 例）：")
         for item in advice_for(vtype):
             lines.append(f"- {item}")
         lines.append("")
@@ -253,7 +271,7 @@ def _render_default_compliance(result: AnalysisResult) -> str:
     return "\n".join(lines)
 
 
-def _render_case_list(result: AnalysisResult) -> str:
+def _render_case_list(result: AnalysisResult, dataset: Dataset | None = None) -> str:
     lines = [
         "## 附件：案例列表",
         "",
@@ -264,7 +282,7 @@ def _render_case_list(result: AnalysisResult) -> str:
     for index, row in enumerate(rows, 1):
         lines.append(
             f"| {index} | {row.entity_display} | {row.entity_type or '—'} | "
-            f"{row.violation_type or '—'} | {row.punishment or '—'} | {row.date or '—'} |"
+            f"{_row_violation_text(row, dataset)} | {row.punishment or '—'} | {row.date or '—'} |"
         )
     if len(result.rows) > MAX_CASE_LIST_ROWS:
         lines.append(f"| …… | 共 {len(result.rows)} 条，仅展示前 {MAX_CASE_LIST_ROWS} 条 | | | | |")
@@ -278,8 +296,13 @@ def render_markdown(
     period_label: str,
     dataset_label: str,
     advice: str | None = None,
+    dataset: Dataset | None = None,
 ) -> str:
-    """把分析结果渲染为完整 Markdown 报告。"""
+    """把分析结果渲染为完整 Markdown 报告。
+
+    ``dataset`` 用于把 canonical 违规类型映射为该数据集的文书措辞
+    （如 CSRC 报告的「未勤勉尽责」），缺省时按 canonical 名展示。
+    """
     header = (
         f"# {title}\n\n"
         f"> 生成时间：{now_iso().replace('T', ' ')}  \n"
@@ -290,13 +313,13 @@ def render_markdown(
     sections = [
         header,
         _render_overview(result, period_label, dataset_label),
-        _render_violation(result),
+        _render_violation(result, dataset),
         _render_punishment(result),
-        _render_comparison(result),
+        _render_comparison(result, dataset),
         _render_legal(result),
         _render_typical_cases(result),
-        _render_compliance(advice) if advice else _render_default_compliance(result),
-        _render_case_list(result),
+        _render_compliance(advice) if advice else _render_default_compliance(result, dataset),
+        _render_case_list(result, dataset),
         "\n---\n\n*本报告由 regwatch 自动生成。*\n",
     ]
     return "\n".join(sections)
@@ -460,9 +483,9 @@ def render_html(markdown_text: str, title: str, period_label: str, dataset_label
 # ──────────────────────────── 合规建议 ────────────────────────────
 
 
-def default_compliance_advice(result: AnalysisResult) -> str:
+def default_compliance_advice(result: AnalysisResult, dataset: Dataset | None = None) -> str:
     """内置的合规建议（无需模型）。"""
-    return _render_default_compliance(result).split("\n\n", 1)[-1].strip()
+    return _render_default_compliance(result, dataset).split("\n\n", 1)[-1].strip()
 
 
 def generate_compliance_advice(
@@ -470,6 +493,7 @@ def generate_compliance_advice(
     llm: LLMClientFactory | None = None,
     *,
     max_attempts: int = 3,
+    dataset: Dataset | None = None,
 ) -> str | None:
     """调用大模型撰写「合规建议」章节；失败返回 ``None``。"""
     if llm is None:
@@ -481,13 +505,17 @@ def generate_compliance_advice(
         inst_count=basic["institution_count"],
         pers_count=basic["personnel_count"],
         violation_dist="、".join(
-            f"{name}({count}例)" for name, count in result.violation["ranked"][:8]
+            f"{_display(name, dataset)}({count}例)"
+            for name, count in result.violation["ranked"][:8]
         ),
         punishment_dist="、".join(
             f"{name}({count}例)" for name, count in result.punishment["category_ranked"][:5]
         ),
         legal_top3="、".join(f"《{law}》({count}次)" for law, count in result.legal["ranked"][:3]),
-        top_violations="、".join(name for name, _ in result.violation["ranked"][:3]) or "无",
+        top_violations="、".join(
+            _display(name, dataset) for name, _ in result.violation["ranked"][:3]
+        )
+        or "无",
     )
 
     for attempt in range(1, max_attempts + 1):
@@ -631,8 +659,10 @@ class ReportService:
                 period_label = f"{date_min} ~ {date_max}" if date_min and date_max else "全量数据"
 
         resolved_title = title or report_title(target)
-        advice = generate_compliance_advice(result, self._llm) if use_llm else None
-        markdown = render_markdown(result, resolved_title, period_label, target.label, advice)
+        advice = generate_compliance_advice(result, self._llm, dataset=target) if use_llm else None
+        markdown = render_markdown(
+            result, resolved_title, period_label, target.label, advice, dataset=target
+        )
 
         return ReportOutput(
             dataset=target.value,

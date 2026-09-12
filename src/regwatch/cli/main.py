@@ -4,7 +4,7 @@
 
 ``fetch``（amac / csrc / monthly / url）、``summarize``、``report``、
 ``org-type``、``config``（show / test / add-model / remove-model / set-model / set-database）、
-``db``（init / import / export / stats）、``web``、``jobs``。
+``db``（init / import / export / rebuild-violations / stats）、``web``、``jobs``。
 
 业务一律委托 :mod:`regwatch.services`，本模块只做参数解析与结果呈现。
 """

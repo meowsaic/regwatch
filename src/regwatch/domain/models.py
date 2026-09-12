@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field, fields
 from datetime import date as _date
 from typing import Any, Self
@@ -24,6 +25,7 @@ __all__ = [
     "CaseRecord",
     "CaseRow",
     "ModelProfile",
+    "QaIntent",
     "SummaryRecord",
     "TaskRecord",
     "split_multi_value",
@@ -54,12 +56,17 @@ def _to_bool(value: Any) -> bool | None:
     return None
 
 
-#: 多值字段分隔符（顿号优先，兼容逗号与斜杠）
-_MULTI_SEP = re.compile(r"[、,，/;；]")
+#: 多值字段分隔符（顿号优先，兼容逗号、斜杠与中点「·」）
+_MULTI_SEP = re.compile(r"[、,，/;；·]")
 
 
 def split_multi_value(value: str | None) -> tuple[str, ...]:
-    """拆分多值字段（``"信息披露违规、操纵市场"`` → 两项元组）。"""
+    """拆分多值字段（``"信息披露违规、操纵市场"`` → 两项元组）。
+
+    历史上模型偶尔输出中点分隔（``"未配合自律管理·未按规定备案"``），
+    因此把「·」也计入分隔符；冒号「类型：子项」的拆分由
+    :func:`regwatch.domain.violations.normalize_violations` 负责。
+    """
     if not value:
         return ()
     parts = (part.strip() for part in _MULTI_SEP.split(str(value)))
@@ -402,6 +409,155 @@ class CaseQuery:
 
     def replace(self, **changes: Any) -> CaseQuery:
         return CaseQuery(**{**{f.name: getattr(self, f.name) for f in fields(self)}, **changes})  # type: ignore[arg-type]
+
+
+# ──────────────────────────── 智能问答意图 ────────────────────────────
+
+
+def _as_str_tuple(value: Any) -> tuple[str, ...]:
+    """把模型输出的列表/字符串归一为去空去重的字符串元组。"""
+    if value is None:
+        return ()
+    items: Iterable[Any] = value if isinstance(value, (list, tuple, set)) else [value]
+    seen: list[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if text and text not in seen:
+            seen.append(text)
+    return tuple(seen)
+
+
+def _clamp_limit(value: Any, default: int = 15, lo: int = 1, hi: int = 40) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, number))
+
+
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _strict_date(value: _date | str | None) -> str | None:
+    """只接受真实可解析的 ``YYYY-MM-DD``；垃圾日期一律丢弃为 ``None``。"""
+    text = coerce_date(value)
+    if not text or not _ISO_DATE.match(text):
+        return None
+    try:
+        _date.fromisoformat(text)
+    except ValueError:
+        return None
+    return text
+
+
+@dataclass(frozen=True, slots=True)
+class QaIntent:
+    """智能问答的结构化检索意图（模型 JSON 输出的归一结果）。
+
+    ``mode`` 为 ``qa``（问答）或 ``report``（专题报告）。
+    ``keywords`` 会逐条检索后合并；``violations`` / ``datasets`` 等映射到
+    :class:`CaseQuery`。非法值一律丢弃，绝不因脏输出抛错。
+    """
+
+    mode: str = "qa"
+    keywords: tuple[str, ...] = ()
+    datasets: tuple[Dataset, ...] = ()
+    violations: tuple[str, ...] = ()
+    bureaus: tuple[str, ...] = ()
+    date_from: str | None = None
+    date_to: str | None = None
+    limit: int = 15
+    fund_related_only: bool = False
+    notes: str = ""
+
+    def __post_init__(self) -> None:
+        # 违规类型归一与未知类型降级为关键词；violations.py 反向依赖 models，
+        # 故在此延迟导入避免环。
+        from .violations import UNCLASSIFIED, VIOLATION_TYPES, normalize_violations
+
+        object.__setattr__(self, "mode", "report" if self.mode == "report" else "qa")
+        known_v: list[str] = []
+        demoted: list[str] = []
+        for item in _as_str_tuple(self.violations):
+            for normed in normalize_violations(item):
+                if normed == UNCLASSIFIED:
+                    continue
+                if normed in VIOLATION_TYPES:
+                    if normed not in known_v:
+                        known_v.append(normed)
+                elif normed not in demoted:
+                    demoted.append(normed)
+        object.__setattr__(self, "violations", tuple(known_v))
+
+        keywords: list[str] = []
+        for word in (*_as_str_tuple(self.keywords), *demoted):
+            if word and word not in keywords:
+                keywords.append(word)
+        object.__setattr__(self, "keywords", tuple(keywords))
+
+        object.__setattr__(self, "bureaus", _as_str_tuple(self.bureaus))
+        object.__setattr__(self, "limit", _clamp_limit(self.limit))
+        object.__setattr__(self, "fund_related_only", bool(self.fund_related_only))
+        object.__setattr__(self, "notes", str(self.notes or "").strip())
+        clean_ds: list[Dataset] = []
+        for item in self.datasets:
+            parsed = item if isinstance(item, Dataset) else Dataset.parse(str(item).strip().lower())
+            if parsed is not None and parsed not in clean_ds:
+                clean_ds.append(parsed)
+        object.__setattr__(self, "datasets", tuple(clean_ds))
+        date_from = _strict_date(self.date_from)
+        date_to = _strict_date(self.date_to)
+        if date_from and date_to and date_from > date_to:
+            date_from, date_to = date_to, date_from
+        object.__setattr__(self, "date_from", date_from)
+        object.__setattr__(self, "date_to", date_to)
+
+    @classmethod
+    def from_llm_dict(cls, data: dict[str, Any] | None) -> QaIntent:
+        """从容错的模型 JSON 字典构造意图；``None`` / 非法字段回落默认。"""
+        raw = data if isinstance(data, dict) else {}
+        mode = str(raw.get("mode") or "qa").strip().lower()
+        if mode not in {"qa", "report"}:
+            mode = "report" if "报告" in str(raw.get("mode") or "") else "qa"
+        return cls(
+            mode=mode,
+            keywords=_as_str_tuple(raw.get("keywords") or raw.get("keyword")),
+            datasets=tuple(
+                parsed
+                for item in _as_str_tuple(raw.get("datasets") or raw.get("dataset"))
+                for parsed in [Dataset.parse(item.lower())]
+                if parsed is not None
+            ),
+            violations=_as_str_tuple(raw.get("violations") or raw.get("violation")),
+            bureaus=_as_str_tuple(raw.get("bureaus") or raw.get("bureau")),
+            date_from=_strict_date(raw.get("date_from") or raw.get("start_date")),
+            date_to=_strict_date(raw.get("date_to") or raw.get("end_date")),
+            limit=_clamp_limit(raw.get("limit"), default=15),
+            fund_related_only=_to_bool(raw.get("fund_related_only")) is True,
+            notes=str(raw.get("notes") or ""),
+        )
+
+    def to_case_query(self, *, keyword: str = "", limit: int | None = None) -> CaseQuery:
+        """映射为检索条件；``keyword`` 覆盖关键词（多关键词由服务逐条检索合并）。"""
+        return CaseQuery(
+            datasets=self.datasets,
+            statuses=(CaseStatus.DONE,) if self.violations else (),
+            violations=self.violations,
+            bureaus=self.bureaus,
+            date_from=self.date_from,
+            date_to=self.date_to,
+            keyword=keyword or (self.keywords[0] if self.keywords else ""),
+            fund_related_only=self.fund_related_only,
+            limit=limit if limit is not None else self.limit,
+            order_by="date",
+            descending=True,
+        )
+
+    def primary_keyword(self) -> str:
+        return self.keywords[0] if self.keywords else ""
+
+    def replace(self, **changes: Any) -> QaIntent:
+        return QaIntent(**{**{f.name: getattr(self, f.name) for f in fields(self)}, **changes})  # type: ignore[arg-type]
 
 
 # ──────────────────────────── 任务 ────────────────────────────
