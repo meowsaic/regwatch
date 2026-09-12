@@ -226,6 +226,10 @@ git add -f data/regwatch-slim.db
 
 ## 6. 更新与下线
 
-- 改代码：`git push` 到部署分支即可，云端默认自动重建（App settings 可关闭 auto-reboot）。
+- 改代码：`git push` 到**部署分支**即可，云端会「近乎实时」自动更新，没有开关；
+  如果动到了 `deploy/requirements.txt`，它会自动做一次完整重建（慢一些）。
+- 手动 Reboot：工作区里应用右侧 ⋮ → Reboot（卡住时用），会重新拉取仓库。
+- 休眠：**12 小时无流量**应用会休眠，任何人访问时点一下即可唤醒；唤醒后容器是重建的，
+  容器内的临时改动（抓取/摘要结果）不保证保留。
 - 改 Secrets：保存后自动重启，无需重新部署。
 - 下线：App settings → **Danger zone** → Delete app；私有应用删除后才能再部署新的私有应用。

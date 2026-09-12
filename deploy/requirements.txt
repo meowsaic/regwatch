@@ -8,8 +8,10 @@
 # 版本区间与 pyproject.toml 保持一致：默认依赖 + web extra。
 
 # ── 网页端（pyproject 的 web extra） ──
-streamlit>=1.51
-plotly>=5.24
+# 固定到本地验证过的版本：官方建议在云端 pin 住 streamlit，否则它可能被自动升级，
+# 在你不察觉的情况下破坏页面（依赖变动会触发一次完整重建，属正常现象）。
+streamlit==1.63.0
+plotly==7.0.0
 
 # ── 用例层 / 采集层 / 模型客户端（pyproject 的默认依赖） ──
 openai>=1.60
