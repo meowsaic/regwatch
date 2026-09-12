@@ -267,6 +267,58 @@ class TestReadOnlyMode:
         assert len(at.selectbox) == 1, "解锁后应恢复提交表单"
 
 
+class TestNavVisibility:
+    """云端只读时，两个写操作页面必须从导航里消失（点不到）。"""
+
+    def test_all_pages_available_when_not_read_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from regwatch.web import nav
+
+        monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)
+        titles = [item.title for item in nav.visible_items()]
+        assert titles == ["总览看板", "案例浏览", "统计分析", "任务中心", "模型与配置"]
+
+    def test_admin_pages_hidden_in_read_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from regwatch.web import nav
+
+        monkeypatch.setenv("REGWATCH_READ_ONLY", "1")
+        monkeypatch.delenv("REGWATCH_ADMIN_TOKEN", raising=False)
+
+        items = nav.visible_items()
+        assert [item.title for item in items] == ["总览看板", "案例浏览", "统计分析"]
+        assert all(item.url_path not in {"jobs", "settings"} for item in items)
+        assert items[0].url_path == nav.DEFAULT_URL_PATH  # 默认页始终在
+
+    def test_sidebar_shows_lock_notice(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        pytest.importorskip("streamlit.testing.v1")
+        from streamlit.testing.v1 import AppTest
+
+        monkeypatch.setenv("REGWATCH_READ_ONLY", "1")
+        monkeypatch.delenv("REGWATCH_ADMIN_TOKEN", raising=False)
+
+        at = AppTest.from_file(str(app_path()), default_timeout=180)
+        at.run()
+        assert not at.exception, [str(item.value) for item in at.exception]
+        assert any("只读" in str(item.value) for item in at.sidebar.caption)
+
+    def test_sidebar_unlock_sets_session_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        pytest.importorskip("streamlit.testing.v1")
+        from streamlit.testing.v1 import AppTest
+
+        monkeypatch.setenv("REGWATCH_READ_ONLY", "1")
+        monkeypatch.setenv("REGWATCH_ADMIN_TOKEN", "s3cret")
+
+        at = AppTest.from_file(str(app_path()), default_timeout=180)
+        at.run()
+        assert not at.exception, [str(item.value) for item in at.exception]
+
+        at.get_by_key("regwatch.admin-token@sidebar").set_value("s3cret")
+        at.get_by_key("regwatch.admin-unlock@sidebar").click()
+        at.run()
+
+        assert not at.exception, [str(item.value) for item in at.exception]
+        assert at.session_state["regwatch.admin_unlocked"] is True
+
+
 class TestClampPage:
     def test_within_range(self) -> None:
         assert clamp_page(3, 10) == 3

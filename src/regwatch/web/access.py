@@ -26,6 +26,7 @@ __all__ = [
     "is_admin",
     "read_only",
     "require_admin",
+    "sidebar_lock",
 ]
 
 READ_ONLY_ENV: Final = "REGWATCH_READ_ONLY"
@@ -34,6 +35,10 @@ ADMIN_TOKEN_ENV: Final = "REGWATCH_ADMIN_TOKEN"
 _UNLOCK_KEY: Final = "regwatch.admin_unlocked"
 _TOKEN_INPUT_KEY: Final = "regwatch.admin-token"
 _UNLOCK_BUTTON_KEY: Final = "regwatch.admin-unlock"
+
+# 侧边栏与页面内可能同时渲染解锁表单，键名错开避免 DuplicateWidgetID
+_SIDEBAR_TOKEN_KEY: Final = "regwatch.admin-token@sidebar"
+_SIDEBAR_BUTTON_KEY: Final = "regwatch.admin-unlock@sidebar"
 
 _TRUTHY: Final = frozenset({"1", "true", "yes", "on"})
 
@@ -103,3 +108,40 @@ def require_admin(page: str) -> bool:
         else:
             st.error("口令不正确")
     return False
+
+
+def sidebar_lock() -> None:
+    """侧边栏里的只读提示与解锁入口（只在只读模式下渲染）。
+
+    导航项由 :func:`regwatch.web.nav.visible_items` 在每次脚本重跑时重新计算，
+    因此这里解锁后 ``st.rerun()`` 会让「任务中心」「模型与配置」重新出现。
+    """
+    if not read_only():
+        return
+
+    if is_admin():
+        st.caption("🔓 已解锁：任务中心与「模型与配置」可用")
+        return
+
+    st.caption("🔒 云端只读：任务中心与「模型与配置」已隐藏")
+
+    token = admin_token()
+    if not token:
+        return
+
+    with st.form("admin-unlock-sidebar", border=False):
+        value = st.text_input(
+            "管理员口令",
+            type="password",
+            key=_SIDEBAR_TOKEN_KEY,
+            label_visibility="collapsed",
+            placeholder="管理员口令",
+        )
+        submitted = st.form_submit_button("解锁", key=_SIDEBAR_BUTTON_KEY)
+
+    if submitted:
+        if hmac.compare_digest(value.strip(), token):
+            st.session_state[_UNLOCK_KEY] = True
+            st.rerun()
+        else:
+            st.error("口令不正确")
