@@ -28,7 +28,21 @@ class TestParamSpec:
         normalized = spec.normalize({"dataset": "amac", "unknown": 1, "workers": "3"})
         assert normalized == {"dataset": "amac", "workers": 3, "retry_failed": True, "limit": 0}
 
-    def test_describe_spec_unknown_raises(self) -> None:
+    def test_coerce_date_keeps_iso(self) -> None:
+        from datetime import date
+
+        spec = JOB_SPECS[JobKind.FETCH_AMAC].fields[0]
+        assert spec.kind == "date"
+        assert spec.coerce("2026-01-05") == "2026-01-05"
+        assert spec.coerce(date(2026, 2, 3)) == "2026-02-03"
+        assert spec.coerce(None) == ""
+        assert spec.coerce("") == ""
+
+    def test_date_fields_are_marked_date_kind(self) -> None:
+        for kind in (JobKind.FETCH_AMAC, JobKind.FETCH_CSRC, JobKind.REPORT):
+            for field in JOB_SPECS[kind].fields:
+                if field.name in {"start_date", "end_date"}:
+                    assert field.kind == "date"
         with pytest.raises(JobError):
             describe_spec("nope")
 

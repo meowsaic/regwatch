@@ -12,7 +12,7 @@ import streamlit as st
 
 from regwatch.domain import CaseQuery
 
-__all__ = ["FILTER_KEYS", "build_query", "get", "reset_filters", "set_value"]
+__all__ = ["FILTER_KEYS", "FILTER_WIDGET_KEYS", "build_query", "get", "reset_filters", "set_value"]
 
 #: 会话状态的键前缀，避免与 Streamlit 内部键冲突
 PREFIX = "regwatch."
@@ -30,6 +30,22 @@ FILTER_KEYS: tuple[str, ...] = (
     "keyword",
     "fund_related_only",
     "page",
+)
+
+#: 筛选控件的 Streamlit widget key。
+#: 清除筛选时必须一并 pop：无 key 的控件在 rerun 后会把旧选择写回 session。
+FILTER_WIDGET_KEYS: tuple[str, ...] = (
+    "cases-datasets",
+    "cases-violations",
+    "cases-statuses",
+    "cases-case-types",
+    "cases-bureaus",
+    "cases-entity-types",
+    "cases-date-from",
+    "cases-date-to",
+    "cases-keyword",
+    "stats-date-from",
+    "stats-date-to",
 )
 
 #: 各键的默认值
@@ -66,9 +82,11 @@ def set_value(name: str, value: Any) -> None:
 
 
 def reset_filters() -> None:
-    """清空全部筛选条件。"""
+    """清空全部筛选条件（含控件内部状态）。"""
     for name in FILTER_KEYS:
         st.session_state[_key(name)] = DEFAULTS.get(name)
+    for widget_key in FILTER_WIDGET_KEYS:
+        st.session_state.pop(widget_key, None)
 
 
 def build_query(*, limit: int = 0, offset: int = 0, order_by: str = "date") -> CaseQuery:

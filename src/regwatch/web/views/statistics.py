@@ -7,7 +7,7 @@ import streamlit as st
 
 from regwatch.web.components import charts, ui
 from regwatch.web.components.data import cache_key, load_stats
-from regwatch.web.state import build_query, get, set_value
+from regwatch.web.state import build_query
 
 __all__ = ["render"]
 
@@ -16,14 +16,24 @@ def render() -> None:
     ui.page_header("统计分析", "违规类型、处罚措施、主体对比与法规引用")
 
     with st.expander("统计范围", expanded=False):
-        col1, col2 = st.columns(2)
-        with col1:
-            set_value(
-                "date_from", st.text_input("起始日期", value=get("date_from", ""), key="stats_from")
+        cols = st.columns(2)
+        with cols[0]:
+            ui.field(
+                "起始日期",
+                lambda: ui.date_input_field(
+                    "起始日期",
+                    "date_from",
+                    widget_key="stats-date-from",
+                ),
             )
-        with col2:
-            set_value(
-                "date_to", st.text_input("结束日期", value=get("date_to", ""), key="stats_to")
+        with cols[1]:
+            ui.field(
+                "结束日期",
+                lambda: ui.date_input_field(
+                    "结束日期",
+                    "date_to",
+                    widget_key="stats-date-to",
+                ),
             )
 
     stats = load_stats(cache_key(build_query()))
@@ -39,7 +49,7 @@ def render() -> None:
     with tab1:
         items = stats.get("violation_distribution", [])
         if not items:
-            ui.empty_state("暂无违规类型数据")
+            ui.empty_state("暂无违规类型数据", "运行摘要提取后这里会展示分布。")
         else:
             st.plotly_chart(
                 charts.hbar(
@@ -49,10 +59,26 @@ def render() -> None:
                 ),
                 width="stretch",
             )
-            st.dataframe(pd.DataFrame(items), width="stretch", hide_index=True)
+            frame = pd.DataFrame(items)
+            st.dataframe(
+                frame,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "type": st.column_config.TextColumn("违规类型", width="large"),
+                    "count": st.column_config.NumberColumn("案例数", width="small"),
+                },
+            )
+            ui.download_button(
+                frame,
+                filename="regwatch-violation-distribution.csv",
+                label="导出违规类型分布",
+                key="stats-export-violations",
+            )
 
     with tab2:
         categories = stats.get("punishment_categories", [])
+        details = stats.get("punishment_details", [])
         if categories:
             st.plotly_chart(
                 charts.donut(
@@ -62,9 +88,10 @@ def render() -> None:
                 ),
                 width="stretch",
             )
-        details = stats.get("punishment_details", [])
         if details:
             st.dataframe(pd.DataFrame(details), width="stretch", hide_index=True)
+        if not categories and not details:
+            ui.empty_state("暂无处罚措施数据", "摘要提取完成后可按处罚类别聚合。")
 
     with tab3:
         comparison = stats.get("entity_comparison", {})
@@ -88,10 +115,11 @@ def render() -> None:
                 width="stretch",
             )
         else:
-            ui.empty_state("暂无主体对比数据")
+            ui.empty_state("暂无主体对比数据", "需要已提取且标注主体类型的案例。")
 
     with tab4:
         laws = stats.get("legal_basis_top", [])
+        trend_rows = stats.get("time_trend", [])
         if laws:
             st.plotly_chart(
                 charts.hbar(
@@ -101,7 +129,6 @@ def render() -> None:
                 ),
                 width="stretch",
             )
-        trend_rows = stats.get("time_trend", [])
         if trend_rows:
             st.plotly_chart(
                 charts.trend(
@@ -116,18 +143,29 @@ def render() -> None:
 
     typical = stats.get("typical", {})
     if typical:
-        st.markdown("#### 代表案例")
+        ui.section_header("代表案例", "各违规类型下的样本案件，便于对照阅读")
         rows = []
         for vtype, cases in list(typical.items())[:10]:
             for case in cases:
                 rows.append(
                     {
                         "违规类型": vtype,
-                        "当事人": case.get("punished_entities", ""),
-                        "日期": case.get("date", ""),
-                        "处罚": case.get("punishment", ""),
-                        "摘要": (case.get("violation_summary") or "")[:120],
+                        "当事人": case.get("punished_entities", "") or "—",
+                        "日期": case.get("date", "") or "—",
+                        "处罚": case.get("punishment", "") or "—",
+                        "摘要": (case.get("violation_summary") or "")[:120] or "—",
                     }
                 )
         if rows:
-            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+            st.dataframe(
+                pd.DataFrame(rows),
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "违规类型": st.column_config.TextColumn("违规类型", width="medium"),
+                    "当事人": st.column_config.TextColumn("当事人", width="medium"),
+                    "日期": st.column_config.TextColumn("日期", width="small"),
+                    "处罚": st.column_config.TextColumn("处罚", width="medium"),
+                    "摘要": st.column_config.TextColumn("摘要", width="large"),
+                },
+            )

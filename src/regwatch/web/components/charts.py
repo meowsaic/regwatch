@@ -16,6 +16,7 @@ __all__ = [
     "grouped_bar",
     "hbar",
     "heat_by_month",
+    "heat_from_periods",
     "style",
     "trend",
 ]
@@ -39,7 +40,7 @@ PALETTE: list[str] = [
     "#6366F1",
 ]
 
-_FONT = "'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif"
+_FONT = "'Segoe UI','PingFang SC','Microsoft YaHei','Noto Sans SC',system-ui,sans-serif"
 
 
 def style(
@@ -225,6 +226,48 @@ def grouped_bar(
     )
     fig.update_traces(hovertemplate="%{x}<br>%{legendgroup}：%{y} 例<extra></extra>")
     return _with_title(fig, title, height)
+
+
+def heat_from_periods(
+    periods: Sequence[str],
+    counts: Sequence[int],
+    title: str = "",
+    height: int = 320,
+) -> go.Figure:
+    """把 ``YYYY-MM`` 聚合序列渲染成年 × 月热力图。
+
+    总览的 ``time_trend`` 已按月聚合，无需再扫原始日期。
+    """
+    matrix: dict[str, dict[str, int]] = {}
+    years: set[str] = set()
+    for period, count in zip(periods, counts, strict=False):
+        text = str(period or "")
+        if len(text) < 7:
+            continue
+        year, month = text[:4], text[5:7]
+        matrix.setdefault(year, {})[month] = int(count)
+        years.add(year)
+    if not years:
+        fig = go.Figure()
+        fig.add_annotation(text="暂无数据", showarrow=False, font={"size": 16, "color": "#94A3B8"})
+        return style(fig, height=height, legend=False, title=title)
+
+    year_labels = sorted(years)
+    month_labels = [f"{m:02d}" for m in range(1, 13)]
+    z = [[matrix.get(year, {}).get(month, 0) for month in month_labels] for year in year_labels]
+    fig = go.Figure(
+        go.Heatmap(
+            z=z,
+            x=[f"{int(m)}月" for m in month_labels],
+            y=year_labels,
+            colorscale=[[0, "#F8FAFF"], [0.35, "#BFDBFE"], [0.7, "#2563EB"], [1, "#354e92"]],
+            hovertemplate="%{y}年 %{x}<br>%{z} 例<extra></extra>",
+            xgap=2,
+            ygap=2,
+            colorbar={"thickness": 10, "len": 0.6},
+        )
+    )
+    return _with_title(fig, title, height, legend=False)
 
 
 def heat_by_month(rows: Iterable[dict[str, Any]], title: str = "", height: int = 320) -> go.Figure:

@@ -409,3 +409,257 @@ def test_session_helpers_are_importable() -> None:
     assert callable(state.build_query)
     assert callable(state.reset_filters)
     assert state.get.__name__ == "get"
+
+
+class TestParseDateArg:
+    def test_empty_and_none(self) -> None:
+        from regwatch.web.components.ui import parse_date_arg
+
+        assert parse_date_arg(None) is None
+        assert parse_date_arg("") is None
+        assert parse_date_arg("   ") is None
+
+    def test_iso_string_and_date(self) -> None:
+        from datetime import date
+
+        from regwatch.web.components.ui import parse_date_arg
+
+        assert parse_date_arg("2026-01-15") == date(2026, 1, 15)
+        assert parse_date_arg(date(2026, 2, 1)) == date(2026, 2, 1)
+
+    def test_datetime_and_sequence(self) -> None:
+        from datetime import date, datetime
+
+        from regwatch.web.components.ui import parse_date_arg
+
+        assert parse_date_arg(datetime(2026, 3, 4, 12, 0)) == date(2026, 3, 4)
+        assert parse_date_arg([date(2026, 5, 6)]) == date(2026, 5, 6)
+        assert parse_date_arg((None, None)) is None
+
+    def test_invalid_text(self) -> None:
+        from regwatch.web.components.ui import parse_date_arg
+
+        assert parse_date_arg("not-a-date") is None
+
+
+def test_cases_page_renders_date_and_multiselect_filters() -> None:
+    """案例浏览：起止日期为 date_input，多选可渲染且不抛异常。"""
+    pytest.importorskip("streamlit.testing.v1")
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_string(_VIEW_SCRIPT.format(view="cases"), default_timeout=180)
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+    # 起始/结束日期
+    assert len(at.date_input) >= 2
+    assert len(at.multiselect) >= 6
+    # 结果摘要条（空库也应显示命中 0）
+    assert any("命中" in (item.value or "") for item in at.markdown)
+
+
+def test_cases_page_wires_export_when_rows_exist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """回归：案例页在有结果时必须挂上 CSV 导出与摘要条（T3/T8）。"""
+    pytest.importorskip("streamlit.testing.v1")
+    from streamlit.testing.v1 import AppTest
+
+    sample = {
+        "date": "2024-01-02",
+        "dataset": "amac",
+        "dataset_label": "中基协",
+        "title": "示例处分",
+        "punished_entities": "示例机构",
+        "violation_type": "违规募集",
+        "punishment": "警告",
+        "status": "done",
+        "status_label": "已完成",
+        "case_id": "demo-1",
+        "entity_type": "机构",
+        "involved_fund": "",
+        "legal_basis": "",
+        "document_number": "",
+        "source_url": "https://example.com/demo",
+    }
+    monkeypatch.setattr(
+        "regwatch.web.views.cases.load_rows",
+        lambda _key: [sample],
+    )
+    at = AppTest.from_string(_VIEW_SCRIPT.format(view="cases"), default_timeout=180)
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+    assert len(at.download_button) >= 1
+    assert any("命中 1" in (item.value or "") for item in at.markdown)
+
+
+def test_statistics_page_renders_date_filters() -> None:
+    """统计分析：统计范围使用日期选择器。"""
+    pytest.importorskip("streamlit.testing.v1")
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_string(_VIEW_SCRIPT.format(view="statistics"), default_timeout=180)
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+    assert len(at.date_input) >= 2
+
+
+def test_reset_filters_clears_widget_keys() -> None:
+    """回归：清除筛选必须弹出控件 key，否则 Streamlit 会把旧选择写回 session。"""
+    from regwatch.web import state
+
+    fake: dict = {}
+    for name in state.FILTER_KEYS:
+        fake[state.PREFIX + name] = ["stale"]
+    for widget_key in state.FILTER_WIDGET_KEYS:
+        fake[widget_key] = ["stale"]
+
+    import streamlit as st
+
+    original = st.session_state
+    try:
+        st.session_state = fake  # type: ignore[assignment]
+    except Exception:
+        pytest.skip("无法替换 streamlit.session_state")
+    try:
+        state.reset_filters()
+        for name in state.FILTER_KEYS:
+            assert fake[state.PREFIX + name] == state.DEFAULTS.get(name)
+        for widget_key in state.FILTER_WIDGET_KEYS:
+            assert widget_key not in fake
+    finally:
+        st.session_state = original  # type: ignore[assignment]
+
+
+def test_clear_filters_button_resets_cases_widgets() -> None:
+    """案例浏览点「清除筛选」后，多选与关键词控件状态应为空。"""
+    pytest.importorskip("streamlit.testing.v1")
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_string(_VIEW_SCRIPT.format(view="cases"), default_timeout=180)
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+
+    # 选中数据集并填关键词
+    datasets = [item for item in at.multiselect if item.key == "cases-datasets"]
+    assert datasets, "缺少 cases-datasets 多选"
+    datasets[0].set_value(["amac"])
+    keywords = [item for item in at.text_input if item.key == "cases-keyword"]
+    assert keywords, "缺少 cases-keyword 输入框"
+    keywords[0].set_value("测试")
+    at.run()
+    assert at.session_state["regwatch.datasets"] == ["amac"]
+    assert at.session_state["regwatch.keyword"] == "测试"
+
+    clear_buttons = [item for item in at.button if "清除筛选" in (item.label or "")]
+    assert clear_buttons, "缺少清除筛选按钮"
+    clear_buttons[0].click()
+    at.run()
+
+    assert not at.exception, [str(item.value) for item in at.exception]
+    assert at.session_state["regwatch.datasets"] == []
+    assert at.session_state["regwatch.keyword"] == ""
+    # 清除后控件本身应显示为空（widget key 会在重渲染时重建，故不断言 key 消失）
+    datasets_after = [item for item in at.multiselect if item.key == "cases-datasets"]
+    assert datasets_after and list(datasets_after[0].value) == []
+    keywords_after = [item for item in at.text_input if item.key == "cases-keyword"]
+    assert keywords_after and (keywords_after[0].value or "") == ""
+
+
+class TestSafeUrlAndSourceLink:
+    def test_rejects_non_http(self) -> None:
+        from regwatch.web.components.ui import safe_url, source_link
+
+        assert safe_url("javascript:alert(1)") == ""
+        assert safe_url("data:text/html,x") == ""
+        assert safe_url(None) == ""
+        assert safe_url("  ") == ""
+        assert "javascript" not in source_link("javascript:alert(1)")
+
+    def test_accepts_http_https(self) -> None:
+        from regwatch.web.components.ui import safe_url, source_link
+
+        assert safe_url("https://example.com/a") == "https://example.com/a"
+        assert safe_url("http://example.com") == "http://example.com"
+        html = source_link("https://example.com/decision")
+        assert 'href="https://example.com/decision"' in html
+        assert "noopener" in html
+
+
+def test_csv_bytes_has_utf8_bom() -> None:
+    import pandas as pd
+
+    from regwatch.web.components.ui import csv_bytes
+
+    frame = pd.DataFrame({"日期": ["2024-01-01"], "标题": ["测试案"]})
+    data = csv_bytes(frame)
+    assert data.startswith(b"\xef\xbb\xbf")
+    assert "测试案".encode() in data
+
+
+def test_heat_from_periods_builds_matrix() -> None:
+    from regwatch.web.components.charts import heat_from_periods
+
+    fig = heat_from_periods(
+        ["2024-01", "2024-02", "2025-01"],
+        [3, 5, 1],
+        title="月份密度",
+    )
+    assert fig.layout.title.text == "月份密度"
+    heat = fig.data[0]
+    assert len(heat.z) == 2  # 2024 / 2025
+    assert heat.z[0][0] == 3
+    assert heat.z[0][1] == 5
+    assert heat.z[1][0] == 1
+
+
+def test_detail_rows_escapes_by_default_and_raw_keys() -> None:
+    from regwatch.web.components.ui import detail_rows, source_link
+
+    escaped = detail_rows([("标题", "<script>x</script>")])
+    assert "<script>" not in escaped
+    assert "&lt;script&gt;" in escaped
+
+    raw = detail_rows([("来源链接", source_link("https://example.com"))], raw_keys={"来源链接"})
+    assert 'href="https://example.com"' in raw
+
+
+def test_jobs_submit_form_uses_date_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    """任务中心：起止日期应为 date_input，而不是手输文本框。"""
+    pytest.importorskip("streamlit.testing.v1")
+    from streamlit.testing.v1 import AppTest
+
+    # 云端入口用例可能把进程环境留在只读；本用例需要可编辑表单
+    monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)
+    at = AppTest.from_string(_VIEW_SCRIPT.format(view="jobs"), default_timeout=180)
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+    # 默认任务类型为 JobKind.all() 第一个（FETCH_AMAC），含 start/end 日期
+    date_keys = {item.key for item in at.date_input}
+    assert "job-start_date" in date_keys
+    assert "job-end_date" in date_keys
+    # 日期字段不应再以文本框形式出现
+    text_keys = {item.key for item in at.text_input}
+    assert "job-start_date" not in text_keys
+    assert "job-end_date" not in text_keys
+
+
+def test_jobs_view_skips_auto_rerun_without_script_ctx() -> None:
+    """未完成任务时：非真实 Streamlit 会话不得 sleep+rerun，避免 AppTest 卡死。"""
+    from regwatch.web.views import jobs as jobs_view
+
+    assert jobs_view._should_auto_refresh() is False
+
+
+def test_section_header_and_filter_summary_render() -> None:
+    pytest.importorskip("streamlit.testing.v1")
+    from streamlit.testing.v1 import AppTest
+
+    script = """
+from regwatch.web.components import ui
+ui.section_header("分区标题", "说明文字")
+ui.filter_summary(3, ["数据集：AMAC", "关键词：挪用"])
+ui.filter_summary(0, [])
+"""
+    at = AppTest.from_string(script, default_timeout=60)
+    at.run()
+    assert not at.exception
+    assert any("命中 3" in (item.value or "") for item in at.markdown)
+    assert any("未设置筛选条件" in (item.value or "") for item in at.markdown)

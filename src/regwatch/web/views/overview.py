@@ -1,4 +1,4 @@
-"""总览看板：规模、构成、违规类型 TOP10 与趋势。"""
+"""总览看板：规模、构成、违规类型 TOP10、来源局与趋势。"""
 
 from __future__ import annotations
 
@@ -18,10 +18,13 @@ def render() -> None:
     query = build_query()
     overview = load_overview(cache_key(query))
 
+    date_min = str(overview.get("date_min") or "")
+    date_max = str(overview.get("date_max") or "")
+    range_chip = f"日期 {date_min} ~ {date_max}" if date_min or date_max else ""
     ui.page_header(
         "总览看板",
         "中基协纪律处分与证监会处罚 / 监管措施的整体规模与分布",
-        chips=[f"数据版本 {overview.get('total', 0)} 例"],
+        chips=[item for item in (f"共 {overview.get('total', 0):,} 例", range_chip) if item],
     )
 
     if not overview.get("total"):
@@ -63,22 +66,41 @@ def render() -> None:
         else:
             ui.empty_state("暂无违规类型数据", "运行一次结构化摘要提取后即可看到分布。")
 
-    trend_rows = overview.get("time_trend", [])
-    if trend_rows:
+    bureau_items = overview.get("bureau") or []
+    if bureau_items:
+        # HQ / 派出机构英文代码对读者不够友好，尽量展示原始 bureau 字段
+        bureau_names = [str(name or "未知") for name, _ in bureau_items[:10]]
+        bureau_counts = [int(count) for _, count in bureau_items[:10]]
         st.plotly_chart(
-            charts.trend(
-                [row["period"] for row in trend_rows],
-                [row["count"] for row in trend_rows],
-                title="案例数量月度趋势",
-                secondary={
-                    "机构": [row["institutions"] for row in trend_rows],
-                    "个人": [row["personnel"] for row in trend_rows],
-                },
-            ),
+            charts.hbar(bureau_names, bureau_counts, title="来源机构 TOP10（CSRC）", height=360),
             width="stretch",
         )
 
-    st.markdown("#### 最新案例")
+    trend_rows = overview.get("time_trend", [])
+    if trend_rows:
+        periods = [row["period"] for row in trend_rows]
+        counts = [row["count"] for row in trend_rows]
+        trend_col, heat_col = st.columns([1.2, 1])
+        with trend_col:
+            st.plotly_chart(
+                charts.trend(
+                    periods,
+                    counts,
+                    title="案例数量月度趋势",
+                    secondary={
+                        "机构": [row["institutions"] for row in trend_rows],
+                        "个人": [row["personnel"] for row in trend_rows],
+                    },
+                ),
+                width="stretch",
+            )
+        with heat_col:
+            st.plotly_chart(
+                charts.heat_from_periods(periods, counts, title="月份密度"),
+                width="stretch",
+            )
+
+    ui.section_header("最新案例", "按处分日期倒序的前 12 条")
     rows = load_rows(cache_key(build_query(limit=_LATEST_LIMIT)))
     if not rows:
         ui.empty_state("暂无案例")
@@ -86,17 +108,29 @@ def render() -> None:
     frame = pd.DataFrame(
         [
             {
-                "日期": row["date"],
-                "来源": row["dataset_label"],
-                "标题": row["title"],
-                "当事人": row["punished_entities"],
-                "违规类型": row["violation_type"],
-                "状态": row["status_label"],
+                "日期": row["date"] or "—",
+                "来源": row["dataset_label"] or "—",
+                "标题": row["title"] or "—",
+                "当事人": row["punished_entities"] or "—",
+                "违规类型": row["violation_type"] or "—",
+                "状态": row["status_label"] or "—",
             }
             for row in rows
         ]
     )
-    st.dataframe(frame, width="stretch", hide_index=True)
+    st.dataframe(
+        frame,
+        width="stretch",
+        hide_index=True,
+        column_config={
+            "日期": st.column_config.TextColumn("日期", width="small"),
+            "来源": st.column_config.TextColumn("来源", width="small"),
+            "标题": st.column_config.TextColumn("标题", width="large"),
+            "当事人": st.column_config.TextColumn("当事人", width="medium"),
+            "违规类型": st.column_config.TextColumn("违规类型", width="medium"),
+            "状态": st.column_config.TextColumn("状态", width="small"),
+        },
+    )
 
 
 def _dataset_label(value: str) -> str:

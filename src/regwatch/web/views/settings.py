@@ -20,14 +20,14 @@ def render() -> None:
 
     _render_paths()
 
-    st.markdown("#### 模型条目")
+    ui.section_header("模型条目", "摘要 / 报告等任务可绑定不同模型")
     current = settings()
     if editable and not current.models:
         ui.callout("尚未配置任何模型，摘要与报告任务将无法执行。", tone="amber", icon="⚠")
 
     for profile in current.models:
         with st.container(border=True):
-            left, right = st.columns([5, 1])
+            left, right = st.columns([5, 1.2], vertical_alignment="center")
             with left:
                 st.markdown(f"**{profile.display_name}**（`{profile.id}`）")
                 st.caption(
@@ -38,9 +38,9 @@ def render() -> None:
                     st.caption(profile.note)
             with right:
                 # 只读模式下连「测试连接」也收起：它会带着密钥请求 base_url
-                if editable and st.button("测试连接", key=f"test-{profile.id}"):
+                if editable and st.button("测试连接", key=f"test-{profile.id}", width="stretch"):
                     _test(profile)
-                if editable and st.button("删除", key=f"del-{profile.id}"):
+                if editable and st.button("删除", key=f"del-{profile.id}", width="stretch"):
                     store().delete_model(profile.id)
                     _refresh_models()
                     st.rerun()
@@ -49,8 +49,8 @@ def render() -> None:
         _render_readonly_binding(current)
         return
 
+    ui.section_header("新增 / 更新模型")
     with st.form("model-form", border=True):
-        st.markdown("##### 新增 / 更新模型")
         col1, col2 = st.columns(2)
         with col1:
             model_id = st.text_input("配置标识 id*", placeholder="deepseek")
@@ -61,7 +61,7 @@ def render() -> None:
             api_key = st.text_input("API Key", type="password")
             vision_model = st.text_input("视觉模型（留空回落文本模型）")
         token_param = st.selectbox("上限参数名", options=["max_tokens", "max_completion_tokens"])
-        submitted = st.form_submit_button("保存", type="primary")
+        submitted = st.form_submit_button("保存", type="primary", width="stretch")
 
     if submitted:
         _save(model_id, base_url, model, label, api_key, vision_model, token_param)
@@ -72,6 +72,7 @@ def render() -> None:
 
 def _render_paths() -> None:
     cfg = settings()
+    ui.section_header("数据路径")
     st.markdown(
         ui.detail_rows(
             [
@@ -86,7 +87,7 @@ def _render_paths() -> None:
 
 def _render_readonly_binding(current: Settings) -> None:
     """只读模式下用纯文本展示绑定与并发，不渲染任何可写控件。"""
-    st.markdown("#### 任务与模型绑定")
+    ui.section_header("任务与模型绑定")
     st.markdown(
         ui.detail_rows(
             [
@@ -96,7 +97,7 @@ def _render_readonly_binding(current: Settings) -> None:
         ),
         unsafe_allow_html=True,
     )
-    st.markdown("#### 并发")
+    ui.section_header("并发")
     st.markdown(
         ui.detail_rows(
             [
@@ -152,7 +153,7 @@ def _test(profile: ModelProfile) -> None:
 
 
 def _render_task_binding() -> None:
-    st.markdown("#### 任务与模型绑定")
+    ui.section_header("任务与模型绑定")
     current = settings()
     columns = st.columns(len(TASK_KINDS))
     for index, task in enumerate(TASK_KINDS):
@@ -172,7 +173,7 @@ def _render_task_binding() -> None:
 
 
 def _render_concurrency() -> None:
-    st.markdown("#### 并发")
+    ui.section_header("并发")
     current = settings()
     col1, col2 = st.columns(2)
     with col1:

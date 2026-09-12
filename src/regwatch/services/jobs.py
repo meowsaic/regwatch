@@ -63,7 +63,7 @@ class ParamSpec:
 
     name: str
     label: str
-    kind: str = "str"  # str | int | bool | enum
+    kind: str = "str"  # str | int | bool | date | enum
     default: Any = ""
     hint: str = ""
     choices: tuple[str, ...] = ()
@@ -81,6 +81,17 @@ class ParamSpec:
                 return int(value)
             except (TypeError, ValueError):
                 return self.default
+        if self.kind == "date":
+            from datetime import date, datetime
+
+            if isinstance(value, datetime):
+                return value.date().isoformat()
+            if isinstance(value, date):
+                return value.isoformat()
+            text = str(value).strip()
+            if not text:
+                return self.default
+            return text[:10]
         return str(value).strip()
 
 
@@ -105,8 +116,8 @@ JOB_SPECS: dict[JobKind, JobSpec] = {
     JobKind.FETCH_AMAC: JobSpec(
         JobKind.FETCH_AMAC,
         (
-            ParamSpec("start_date", "起始日期", hint="不填=上一季度"),
-            ParamSpec("end_date", "结束日期", hint="不填=上一季度"),
+            ParamSpec("start_date", "起始日期", kind="date", hint="不填=上一季度"),
+            ParamSpec("end_date", "结束日期", kind="date", hint="不填=上一季度"),
             ParamSpec(
                 "categories", "抓取分类", default="all", hint="all / Institution / Personnel"
             ),
@@ -115,8 +126,8 @@ JOB_SPECS: dict[JobKind, JobSpec] = {
     JobKind.FETCH_CSRC: JobSpec(
         JobKind.FETCH_CSRC,
         (
-            ParamSpec("start_date", "起始日期", hint="不填=2022-01-01"),
-            ParamSpec("end_date", "结束日期", hint="不填=今天"),
+            ParamSpec("start_date", "起始日期", kind="date", hint="不填=2022-01-01"),
+            ParamSpec("end_date", "结束日期", kind="date", hint="不填=今天"),
             ParamSpec("bureaus", "来源局", default="all", hint="逗号分隔英文标识，all=全部"),
             ParamSpec("case_types", "案例类型", default="all", hint="all / penalty / measure"),
             ParamSpec("concurrency", "并发数", kind="int", default=0, hint="0=使用配置默认值"),
@@ -136,8 +147,8 @@ JOB_SPECS: dict[JobKind, JobSpec] = {
         JobKind.REPORT,
         (
             ParamSpec("dataset", "数据集", default="amac", hint="amac / csrc"),
-            ParamSpec("start_date", "起始日期", hint="不填=全量"),
-            ParamSpec("end_date", "结束日期", hint="不填=全量"),
+            ParamSpec("start_date", "起始日期", kind="date", hint="不填=全量"),
+            ParamSpec("end_date", "结束日期", kind="date", hint="不填=全量"),
             ParamSpec("use_llm", "模型建议", kind="bool", default=False),
         ),
     ),
