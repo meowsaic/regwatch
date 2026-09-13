@@ -22,7 +22,5 @@ def set_database(path: Path | str | None) -> None:
 
 
 def resolve_services() -> Services:
-    """按当前数据库覆盖设置返回服务门面。"""
-    if _DatabaseOverride is not None:
-        return get_services(database=_DatabaseOverride)
-    return get_services()
+    """按当前数据库覆盖设置返回服务门面（未覆盖时走进程级单例）。"""
+    return get_services(database=_DatabaseOverride)

@@ -9,16 +9,14 @@ from __future__ import annotations
 from datetime import datetime
 from urllib.parse import urljoin
 
+from bs4 import BeautifulSoup
+
 from ...logging_setup import get_logger
+from ..common import progress
 from ..docparse import extract_text_from_docx, extract_text_from_pdf
-from ..progress import progress
+from ..htmlparse import extract_main_text, fetch_soup, find_attachment_link
+from ..http import DEFAULT_HEADERS
 from .constants import SITE_ROOT
-from .htmlparse import (
-    extract_text_from_html,
-    fetch_html_page,
-    find_doc_link_in_page,
-    find_pdf_link_in_page,
-)
 from .models import (
     CaseData,
     build_case_id,
@@ -30,6 +28,59 @@ from .models import (
 logger = get_logger("sources.csrc")
 
 __all__ = ["process_case"]
+
+#: 列表页 / 侧边栏常见路径前缀，全页面兜底查找附件时要排除
+SIDEBAR_PREFIXES: tuple[str, ...] = (
+    "hydj",
+    "xwfb",
+    "hdjl",
+    "hyyj",
+    "sjtj",
+    "zwgk",
+    "tz",
+)
+
+
+def fetch_html_page(html_url: str) -> BeautifulSoup | None:
+    """获取详情页并解析；失败返回 ``None``。"""
+    return fetch_soup(html_url, headers=DEFAULT_HEADERS)
+
+
+def find_pdf_link_in_page(page_url: str, soup: BeautifulSoup | None = None) -> str | None:
+    """查找详情页内的 PDF 附件链接。"""
+    if soup is None:
+        soup = fetch_html_page(page_url)
+        if soup is None:
+            return None
+    return find_attachment_link(
+        page_url, soup, suffixes=(".pdf",), sidebar_prefixes=SIDEBAR_PREFIXES
+    )
+
+
+def find_doc_link_in_page(page_url: str, soup: BeautifulSoup | None = None) -> str | None:
+    """查找详情页内的 Word 附件链接（内蒙古等局以 .docx 提供决定书）。"""
+    if soup is None:
+        soup = fetch_html_page(page_url)
+        if soup is None:
+            return None
+    return find_attachment_link(
+        page_url, soup, suffixes=(".doc", ".docx"), sidebar_prefixes=SIDEBAR_PREFIXES
+    )
+
+
+def extract_text_from_html(
+    html_url: str, soup: BeautifulSoup | None = None, min_length: int = 50
+) -> str | None:
+    """从 CSRC 详情页提取正文。
+
+    CSRC 正文容器为 ``div.detail-news``，内部用大量 ``<span><font>`` 包裹文字片段，
+    因此必须 ``unwrap`` 行内标签后再按块级元素分段（``unwrap_inline=True``）。
+    """
+    if soup is None:
+        soup = fetch_html_page(html_url)
+        if soup is None:
+            return None
+    return extract_main_text(soup, unwrap_inline=True, min_length=min_length)
 
 
 def process_case(
@@ -52,7 +103,10 @@ def process_case(
         skip_fund_check: 标题已确认基金相关时跳过正文确认。
 
     Returns:
-        :class:`CaseData`；被基金过滤或无法判定时返回 ``None``。
+        :class:`CaseData`：基金相关时正常返回；**有正文但确认非基金**时也返回
+        （``is_fund_related=False``、带正文，供调用方落盘 SKIPPED 占位记录，
+        避免重扫时重复下载判定）；**无法取得正文**时返回 ``None``（视为抓取
+        失败，允许下次重试）。
     """
     case_id = build_case_id(date_str, link_url)
     full_link = link_url if link_url.startswith("http") else urljoin(SITE_ROOT, link_url)
@@ -110,9 +164,11 @@ def process_case(
             is_fund = True
             fund_evidence = "正文含'基金'"
         else:
+            # 有正文但确认非基金：不返回 None，让调用方落盘 SKIPPED 占位记录
+            # （否则重扫时会再次下载并判定同一批页面）。
             progress(f"  [过滤] 内容非基金: {title}")
-            return None
     elif not is_fund and not raw_text:
+        # 无正文无法判定：视为抓取失败，返回 None 允许下次重试
         progress(f"  [过滤] 无正文且标题未确认基金: {title}")
         return None
 

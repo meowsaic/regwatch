@@ -1,4 +1,4 @@
-"""配置层测试：默认值、旧键迁移、环境变量覆盖与持久化。"""
+"""配置层测试：默认值、环境变量覆盖与持久化。"""
 
 from __future__ import annotations
 
@@ -8,13 +8,7 @@ from pathlib import Path
 import pytest
 
 from regwatch.domain import ModelProfile
-from regwatch.settings import (
-    MAX_CONCURRENCY,
-    ConfigError,
-    ConfigStore,
-    Settings,
-    migrate_legacy_roots,
-)
+from regwatch.settings import MAX_CONCURRENCY, ConfigError, ConfigStore, Settings
 
 
 @pytest.fixture
@@ -36,26 +30,6 @@ def test_defaults_are_applied(config_path: Path) -> None:
     assert settings.database.name == "regwatch.db"
     assert settings.reports_dir.name == "reports"
     assert settings.concurrency_for("fetch", 8) == 8
-
-
-def test_legacy_data_roots_are_migrated(config_path: Path) -> None:
-    config_path.write_text(
-        json.dumps(
-            {"data_roots": {"amac_cases": "data/amac/cases"}, "models": []}, ensure_ascii=False
-        ),
-        encoding="utf-8",
-    )
-    store = ConfigStore(config_path)
-    assert store.settings.database.parent.name == "data"
-    assert store.settings.database.name == "regwatch.db"
-    assert store.settings.reports_dir.name == "reports"
-    assert "data_roots" not in json.loads(config_path.read_text(encoding="utf-8"))
-    assert config_path.with_name(config_path.name + ".legacy.bak").exists()
-
-
-def test_migrate_legacy_roots_is_a_noop_for_new_config() -> None:
-    raw = {"database": "data/x.db"}
-    assert migrate_legacy_roots(raw) == raw
 
 
 def test_env_overrides_database(
@@ -88,6 +62,49 @@ def test_first_model_binds_to_summarize_task(config_path: Path) -> None:
     store = ConfigStore(config_path)
     store.upsert_model(ModelProfile(id="a", base_url="http://a", model="m"))
     assert store.settings.task_model("summarize") == "a"
+
+
+def test_save_model_from_fields_creates_entry(config_path: Path) -> None:
+    store = ConfigStore(config_path)
+    profile = store.save_model_from_fields(
+        model_id=" deepseek ", base_url=" https://api.deepseek.com ", model=" deepseek-chat "
+    )
+    assert profile.id == "deepseek"
+    saved = store.settings.model("deepseek")
+    assert saved.base_url == "https://api.deepseek.com"
+    assert saved.model == "deepseek-chat"
+    # 首个模型仍自动绑定摘要任务
+    assert store.settings.task_model("summarize") == "deepseek"
+
+
+def test_save_model_from_fields_keeps_untouched_fields(config_path: Path) -> None:
+    """只改一处时，同名条目的密钥 / 透传参数 / 备注必须保留。"""
+    store = ConfigStore(config_path)
+    store.upsert_model(
+        ModelProfile(
+            id="a",
+            label="甲",
+            base_url="http://a",
+            api_key="sk-1",
+            model="m1",
+            extra={"thinking": {"type": "disabled"}},
+            note="备注",
+        )
+    )
+    store.save_model_from_fields(model_id="a", base_url="http://a2", model="m2")
+    saved = store.settings.model("a")
+    assert saved.base_url == "http://a2"
+    assert saved.model == "m2"
+    assert saved.api_key == "sk-1"
+    assert saved.label == "甲"
+    assert saved.extra == {"thinking": {"type": "disabled"}}
+    assert saved.note == "备注"
+
+
+def test_save_model_from_fields_validates_required(config_path: Path) -> None:
+    store = ConfigStore(config_path)
+    with pytest.raises(ConfigError, match="缺少必填项"):
+        store.save_model_from_fields(model_id="a", base_url="", model="")
 
 
 def test_task_binding_is_cleared_on_delete(config_path: Path) -> None:

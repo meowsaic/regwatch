@@ -5,11 +5,10 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 import typer
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from ...domain import Dataset
 from .. import resolve_services
-from ..common import console, fail, print_kv
+from ..common import console, fail, print_kv, progress_bar
 
 app = typer.Typer(help="结构化摘要提取", invoke_without_command=True)
 
@@ -29,7 +28,7 @@ def summarize(
         ),
     ] = False,
 ) -> None:
-    """对案例调用大模型提取结构化字段。"""
+    """对案例调用大模型提取结构化字段（默认处理全部未提取案例，含失败重试）。"""
     services = resolve_services()
     targets = [item for item in Dataset.all() if dataset.strip().lower() in ("", "all", item.value)]
     if not targets:
@@ -37,15 +36,7 @@ def summarize(
         raise typer.Exit(1)
 
     total: dict[str, Any] = {"success": 0, "skipped": 0, "failed": 0, "errors": []}
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        TimeElapsedColumn(),
-        console=console,
-        transient=True,
-    ) as progress:
+    with progress_bar() as progress:
         task_ids: dict[str, Any] = {}
 
         def hook(done: int, total_count: int, label: str = "") -> None:

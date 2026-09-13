@@ -1,15 +1,11 @@
-"""数据层测试：仓储 CRUD、查询编译、迁移与 JSON 导入导出。"""
+"""数据层测试：仓储 CRUD、查询编译与结构迁移。"""
 
 from __future__ import annotations
-
-from pathlib import Path
 
 import pytest
 
 from regwatch.db import DataStore
-from regwatch.db.jsonio import case_to_disk, summary_to_disk, write_json
 from regwatch.db.migrations import current_version, ensure_schema
-from regwatch.db.transfer import DiskLayout, export_to_disk, import_from_disk
 from regwatch.domain import (
     CaseQuery,
     CaseRecord,
@@ -320,80 +316,3 @@ class TestMetaRepository:
         store.meta.set_fetch_state("csrc", "Beijing/penalty", "page", "3")
         assert store.meta.fetch_state("csrc", "Beijing/penalty", "page") == "3"
         assert store.meta.fetch_states("csrc", "Beijing/penalty") == {"page": "3"}
-
-
-class TestJsonTransfer:
-    def _layout(self, root: Path, amac_case: CaseRecord) -> DiskLayout:
-        layout = DiskLayout.from_data_root(root)
-        write_json(
-            layout.amac_cases / "institution" / f"{amac_case.case_id}.json",
-            case_to_disk(amac_case),
-        )
-        write_json(
-            layout.amac_summaries / "_summary_index.json",
-            {"cases": {amac_case.case_id: {"status": "done"}}},
-        )
-        write_json(
-            layout.amac_summaries / f"{amac_case.case_id}_summary.json",
-            summary_to_disk(
-                SummaryRecord(
-                    dataset=Dataset.AMAC,
-                    case_id=amac_case.case_id,
-                    violation_type="违规募集",
-                    punishment="公开谴责",
-                    extract_success=True,
-                ),
-                amac_case,
-            ),
-        )
-        return layout
-
-    def test_import_then_export_roundtrip(
-        self, store: DataStore, tmp_path: Path, amac_case: CaseRecord
-    ) -> None:
-        layout = self._layout(tmp_path / "data", amac_case)
-        report = import_from_disk(store.cases, store.summaries, layout)
-
-        assert report.cases["amac"] == 1
-        assert report.summaries["amac"] == 1
-        assert report.statuses["amac"] == {"done": 1}
-
-        counts = export_to_disk(store.cases, store.summaries, tmp_path / "export")
-        assert counts["cases"] == 1
-        assert counts["summaries"] == 1
-        assert (tmp_path / "export" / "amac" / "cases" / "institution").is_dir()
-
-    def test_import_is_idempotent(
-        self, store: DataStore, tmp_path: Path, amac_case: CaseRecord
-    ) -> None:
-        layout = self._layout(tmp_path / "data", amac_case)
-        import_from_disk(store.cases, store.summaries, layout)
-        import_from_disk(store.cases, store.summaries, layout)
-        assert len(store.cases.ids(Dataset.AMAC)) == 1
-
-    def test_import_dedupes_case_id_across_subdirs(
-        self, store: DataStore, tmp_path: Path, amac_case: CaseRecord
-    ) -> None:
-        """同一 case_id 在多个子目录重复归档时按主键合并，并在报告中计数。"""
-        layout = self._layout(tmp_path / "data", amac_case)
-        write_json(
-            layout.amac_cases / "personnel" / f"{amac_case.case_id}.json",
-            case_to_disk(amac_case),
-        )
-        write_json(
-            layout.amac_summaries / "personnel" / f"{amac_case.case_id}_summary.json",
-            summary_to_disk(
-                SummaryRecord(
-                    dataset=Dataset.AMAC, case_id=amac_case.case_id, extract_success=True
-                ),
-                amac_case,
-            ),
-        )
-
-        report = import_from_disk(store.cases, store.summaries, layout)
-
-        assert report.cases["amac"] == 1
-        assert report.duplicate_cases["amac"] == 1
-        assert report.summaries["amac"] == 1
-        assert report.duplicate_summaries["amac"] == 1
-        assert len(store.cases.ids(Dataset.AMAC)) == 1

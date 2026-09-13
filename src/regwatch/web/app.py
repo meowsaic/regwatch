@@ -3,7 +3,7 @@
 导航用 ``st.navigation`` + ``st.Page`` 声明式组织，页面清单见 :mod:`regwatch.web.nav`：
 总览、案例浏览、统计分析、智能问答、任务中心、模型与配置。装配逻辑在 :mod:`regwatch.web.shell`。
 
-云端公开部署请改用 ``deploy/streamlit_public.py``（只挂三个只读页面）。
+云端公开部署请改用 ``deploy/streamlit_public.py``（只挂四个只读页面）。
 """
 
 from __future__ import annotations

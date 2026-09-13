@@ -7,12 +7,10 @@
 ``config.json`` 是本地实际配置（含密钥，已加入 .gitignore），
 ``config.example.json`` 是入库的样例；首次运行时以样例为模板生成。
 
-相比旧版的六键 ``data_roots``，现在只需两个路径：
+只需要两个路径：
 
 - ``database`` —— 唯一的 SQLite 库文件
 - ``reports_dir`` —— 报告产物目录
-
-读到旧配置时会自动转换并备份原文件（:func:`migrate_legacy_roots`）。
 """
 
 from __future__ import annotations
@@ -43,7 +41,6 @@ __all__ = [
 
 CONFIG_FILENAME = "config.json"
 CONFIG_EXAMPLE_FILENAME = "config.example.json"
-LEGACY_BACKUP_SUFFIX = ".legacy.bak"
 
 ENV_PREFIX = "REGWATCH_"
 
@@ -104,33 +101,6 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
         else:
             merged[key] = value
     return merged
-
-
-def migrate_legacy_roots(raw: dict[str, Any]) -> dict[str, Any]:
-    """把旧版 ``data_roots`` 六键转换为 ``database`` / ``reports_dir``。
-
-    旧布局 ``data/amac/cases`` → 数据根 ``data`` → 新库 ``data/regwatch.db``。
-    旧键会被移除；调用方负责写回磁盘。
-    """
-    # 只按「是否出现 data_roots」判定，默认值与样例都不会定义这个键
-    roots = raw.get("data_roots")
-    if not isinstance(roots, dict):
-        return raw
-
-    anchor = str(roots.get("amac_cases") or roots.get("csrc_cases") or DEFAULT_DATABASE)
-    anchor_path = Path(anchor)
-    data_root = anchor_path.parent.parent if len(anchor_path.parts) >= 2 else Path("data")
-    if data_root.name in {"cases", "summaries", "reports"}:
-        data_root = data_root.parent
-    if not str(data_root):
-        data_root = Path("data")
-
-    # 统一写成 POSIX 分隔符，便于跨平台迁移同一份配置
-    raw["database"] = str(Path(data_root) / "regwatch.db").replace("\\", "/")
-    raw["reports_dir"] = str(Path(data_root) / "reports").replace("\\", "/")
-    raw.pop("data_roots", None)
-    raw["_migrated_from_data_roots"] = True
-    return raw
 
 
 def _normalize_model(raw: Any) -> ModelProfile | None:
@@ -287,15 +257,10 @@ class ConfigStore:
             },
             _read_json(PROJECT_ROOT / CONFIG_EXAMPLE_FILENAME),
         )
-        merged = _deep_merge(merged, _read_json(self.path))
-        return migrate_legacy_roots(merged)
+        return _deep_merge(merged, _read_json(self.path))
 
     def _load(self) -> Settings:
         raw = self._read_raw()
-
-        migrated = raw.pop("_migrated_from_data_roots", False)
-        if migrated:
-            self._persist_raw(raw, backup=True)
 
         models = [self._apply_env_key(profile) for profile in self._normalized_models(raw)]
 
@@ -330,10 +295,8 @@ class ConfigStore:
 
     # ── 持久化 ──
 
-    def _persist_raw(self, raw: dict[str, Any], backup: bool = False) -> None:
+    def _persist_raw(self, raw: dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        if backup and self.path.exists():
-            self.path.replace(self.path.with_name(self.path.name + LEGACY_BACKUP_SUFFIX))
         tmp = self.path.with_name(self.path.name + ".tmp")
         tmp.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(tmp, self.path)
@@ -387,6 +350,47 @@ class ConfigStore:
             if len(models) == 1 and not tasks.get("summarize"):
                 tasks["summarize"] = profile.id
             return self._save_and_return(self._settings.replace(models=tuple(models), tasks=tasks))
+
+    def save_model_from_fields(
+        self,
+        *,
+        model_id: str,
+        base_url: str,
+        model: str,
+        api_key: str = "",
+        label: str = "",
+        vision_model: str = "",
+        token_param: str = "max_tokens",
+    ) -> ModelProfile:
+        """按「表单 / 命令行字段 → 模型条目」的规则新增或更新一条配置。
+
+        这是 CLI 与网页端共用的唯一入口：同名条目的未填写字段（密钥、
+        透传参数、备注等）会被保留，避免只改一处时丢掉其余配置。
+
+        Raises:
+            ConfigError: 缺少必填项（配置标识 / base_url / 模型名）。
+        """
+        identifier = (model_id or "").strip()
+        existing = self.settings.model(identifier)
+        profile = ModelProfile(
+            id=identifier,
+            label=(label or "").strip() or (existing.label if existing else ""),
+            base_url=(base_url or "").strip(),
+            api_key=(api_key or "").strip() or (existing.api_key if existing else ""),
+            api_key_env=existing.api_key_env if existing else "",
+            model=(model or "").strip(),
+            vision_model=(vision_model or "").strip(),
+            vision_content_type=existing.vision_content_type if existing else "image_url",
+            token_param=(token_param or "").strip()
+            or (existing.token_param if existing else "max_tokens"),
+            extra=dict(existing.extra) if existing else {},
+            note=existing.note if existing else "",
+        )
+        missing = profile.missing_fields()
+        if missing:
+            raise ConfigError(f"缺少必填项：{'、'.join(missing)}")
+        self.upsert_model(profile)
+        return profile
 
     def delete_model(self, model_id: str) -> Settings:
         with self._lock:

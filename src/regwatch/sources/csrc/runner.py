@@ -16,8 +16,8 @@ from typing import Any
 from ...domain import CaseRecord, CaseStatus, CaseType, Dataset
 from ...logging_setup import get_logger
 from ..bureaus import BUREAUS, Bureau, get_bureau_by_name
+from ..common import default_fetch_range, progress
 from ..http import close_shared_session
-from ..progress import progress
 from .constants import (
     CASE_TYPE_CN,
     CASE_TYPE_MEASURE,
@@ -37,7 +37,6 @@ logger = get_logger("sources.csrc")
 __all__ = [
     "FetchResult",
     "available_bureaus",
-    "default_start_date",
     "fetch",
     "fetch_pending",
     "fetch_single",
@@ -71,16 +70,21 @@ def fetch_source(
     # 1) 刷新列表页（成本低，每次都刷以保证完整性）
     logger.info("  从官网爬取案例列表...")
     collect = collect_measure_links if case_type == CASE_TYPE_MEASURE else collect_penalty_links
-    links = collect(bureau, start_date, end_date)
+    # 列表解析函数返回的 date 是 datetime.date，这里统一归一为 YYYY-MM-DD 字符串：
+    # 拼接 case_id、写库与日期校验都要求字符串，漏转会抛 TypeError 或写入错误日期。
+    links = [_normalize_link(item) for item in collect(bureau, start_date, end_date)]
     logger.info("  列表页收集到 %d 个案例", len(links))
 
-    # 2) 过滤：库里已有正文的跳过；标题明确非基金的直接标记 skipped
-    known = set(store.cases.ids(Dataset.CSRC))
+    # 2) 过滤：已有正文或已判定非基金的案例跳过；无正文的（抓取失败/中断）允许重试。
+    #    不能只按 case_id 是否存在判断——失败案例一旦入库就会被永久跳过。
+    with_body = set(store.cases.ids(Dataset.CSRC)) - set(store.cases.ids_missing_body(Dataset.CSRC))
+    skipped_ids = set(store.cases.ids(Dataset.CSRC, statuses=[CaseStatus.SKIPPED]))
+    skip_ids = with_body | skipped_ids
     to_process: list[dict[str, Any]] = []
     skipped = 0
 
     for item in links:
-        if _case_id_of(item, bureau, case_type) in known:
+        if _case_id_of(item, bureau, case_type) in skip_ids:
             continue
         if is_fund_by_title(item.get("title", "")) is False:
             store.cases.upsert(
@@ -121,15 +125,22 @@ def fetch_source(
             return "error", None, f"{type(exc).__name__}: {exc}"
 
         if case is None:
-            return "skipped", None, ""
+            # 无有效正文且无法确认基金相关性：抓取失败，可重试
+            return "failed", None, "无有效正文且无法确认基金相关性"
+        if not case.is_fund_related and case.has_text:
+            # 有正文但确认非基金：落盘 SKIPPED 占位记录（见 handle）
+            return "skipped_content", case, ""
         return ("success" if case.has_text else "failed"), case, case.error
 
-    def handle(status: str, case: CaseData | None, error: str) -> None:
+    def handle(item: dict[str, Any], status: str, case: CaseData | None, error: str) -> None:
         if status == "success" and case is not None:
             store.cases.upsert(case.to_case_record())
             counts["success"] += 1
             return
-        if status == "skipped":
+        if status == "skipped_content" and case is not None:
+            store.cases.upsert(
+                _minimal_record(item, bureau, case_type, CaseStatus.SKIPPED, "内容判定非基金")
+            )
             counts["skipped"] += 1
             return
         if status == "error":
@@ -143,7 +154,7 @@ def fetch_source(
             progress(f"  [{index}/{total}] {link_info.get('title', '')}")
             if on_progress:
                 on_progress(index, total, link_info.get("title", ""))
-            handle(*worker(link_info))
+            handle(link_info, *worker(link_info))
             if index < total:
                 time.sleep(DELAY_BETWEEN_CASES)
     else:
@@ -156,7 +167,7 @@ def fetch_source(
                     status, case, error = future.result()
                 except Exception as exc:
                     status, case, error = "error", None, str(exc)
-                handle(status, case, error)
+                handle(item, status, case, error)
                 completed += 1
                 if on_progress:
                     on_progress(completed, total, item.get("title", ""))
@@ -176,6 +187,14 @@ def fetch_source(
         counts["skipped"],
     )
     return counts["success"], counts["failed"], counts["skipped"]
+
+
+def _normalize_link(item: dict[str, Any]) -> dict[str, Any]:
+    """把列表项的 ``date`` 归一为 ``YYYY-MM-DD`` 字符串（原样返回其余字段）。"""
+    raw = item.get("date", "")
+    if hasattr(raw, "isoformat"):
+        raw = raw.isoformat()
+    return {**item, "date": str(raw or "")}
 
 
 def _case_id_of(link_info: dict[str, Any], bureau: Bureau, case_type: str) -> str:
@@ -200,6 +219,7 @@ def _minimal_record(
         date=link_info.get("date", ""),
         status=status,
         status_note=note,
+        fetch_time=datetime.now().isoformat(),
         case_type=case_type,
         bureau=bureau.name_en,
     )
@@ -238,11 +258,6 @@ def available_bureaus() -> list[dict[str, str]]:
     return [{"name_en": item.name_en, "name_cn": item.name_cn} for item in BUREAUS]
 
 
-def default_start_date() -> date:
-    """默认抓取起始日期（覆盖 2022 年以来的案例）。"""
-    return DEFAULT_START_DATE
-
-
 def fetch(
     start_date: date | None = None,
     end_date: date | None = None,
@@ -256,8 +271,10 @@ def fetch(
     """抓取指定日期范围、来源与类型的 CSRC 案例。
 
     Args:
-        start_date: 起始日期（含），默认 2022-01-01。
-        end_date: 结束日期（含），默认今天。
+        start_date: 起始日期（含）；留空时回落到「上次覆盖日期 - 回看天数」
+            （见 :func:`~regwatch.sources.common.default_fetch_range`），
+            空库回落到 :data:`~regwatch.sources.csrc.constants.DEFAULT_START_DATE`。
+        end_date: 结束日期（含）；留空时回落到今天。
         bureaus: 证监局英文标识列表，如 ``["HQ", "Beijing"]``；默认全部来源。
         case_types: ``penalty`` / ``measure``；默认两者都抓。
         store: 数据仓储门面（:class:`~regwatch.db.DataStore`）。
@@ -269,8 +286,12 @@ def fetch(
 
         store = get_services().store
 
-    start_date = start_date or DEFAULT_START_DATE
-    end_date = end_date or datetime.now().date()
+    if start_date is None or end_date is None:
+        default_start, default_end = default_fetch_range(
+            store, Dataset.CSRC, first_run_start=DEFAULT_START_DATE
+        )
+        start_date = start_date or default_start
+        end_date = end_date or default_end
 
     selected: list[Bureau] = []
     for name in bureaus or []:

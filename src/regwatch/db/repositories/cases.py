@@ -243,6 +243,20 @@ class CaseRepository:
             )
         return bool(cursor.rowcount)
 
+    def ids_missing_body(self, dataset: Dataset | str) -> list[str]:
+        """列出没有任何正文记录的案例 ID（抓取失败 / 中断，可安全重试）。
+
+        抓取流程用它区分「已成功入库」与「抓过但没拿到正文」：
+        前者跳过，后者允许在下次抓取时重试，避免失败案例永久卡死。
+        """
+        rows = self._db.query(
+            "SELECT c.case_id FROM cases c "
+            "LEFT JOIN case_bodies b ON b.dataset = c.dataset AND b.case_id = c.case_id "
+            "WHERE c.dataset = ? AND b.case_id IS NULL ORDER BY c.case_id",
+            (_dataset_value(dataset),),
+        )
+        return [str(row["case_id"]) for row in rows]
+
     def list_short_bodies(self, *, max_length: int = 200) -> list[tuple[str, str, int]]:
         """正文过短的案例（可能是抓取/解析失败）。返回 (dataset, case_id, length)。"""
         rows = self._db.query(

@@ -1,16 +1,30 @@
-"""公共辅助：结果呈现与错误处理。"""
+"""公共辅助：进度条、结果呈现与错误处理。"""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, NoReturn
 
 import typer
 from rich.console import Console
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
 
-__all__ = ["console", "fail", "print_json", "print_kv", "print_table"]
+__all__ = ["console", "fail", "print_json", "print_kv", "print_table", "progress_bar"]
 
 console = Console()
+
+
+def progress_bar() -> Progress:
+    """统一的命令行进度条（任务结束后自动清除，避免污染结果输出）。"""
+    return Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    )
 
 
 def print_kv(title: str, data: dict[str, Any]) -> None:
@@ -49,7 +63,7 @@ def print_json(data: Any) -> None:
     console.print_json(json.dumps(data, ensure_ascii=False, default=str))
 
 
-def fail(message: str, code: int = 1) -> None:
+def fail(message: str, code: int = 1) -> NoReturn:
     """打印错误并以给定退出码结束。"""
     console.print(f"[bold red]✗ {message}[/bold red]")
     raise typer.Exit(code)

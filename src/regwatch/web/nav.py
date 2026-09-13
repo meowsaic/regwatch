@@ -5,7 +5,7 @@
 1. ``app.py`` 是 Streamlit 的入口脚本，import 它会执行 ``main()``，不适合被测试引用；
 2. 「云端只读时把哪几页收起来」属于权限策略，和 :mod:`regwatch.web.access` 一起演进。
 
-默认行为：本地 ``regwatch web`` 五个页面全开；``deploy/streamlit_app.py`` 打开的
+默认行为：本地 ``regwatch web`` 六个页面全开；``deploy/streamlit_app.py`` 打开的
 只读模式（``REGWATCH_READ_ONLY=1``）下，``admin_only`` 的页面**直接从导航里消失**，
 点不到；在侧边栏输入 ``REGWATCH_ADMIN_TOKEN`` 口令解锁后才会重新出现。
 """
@@ -39,7 +39,6 @@ NAV_ITEMS: tuple[NavItem, ...] = (
     NavItem("statistics", "统计分析", "📈", "statistics"),
     NavItem("qa", "智能问答", "💬", "qa"),
     NavItem("jobs", "任务中心", "⚙", "jobs", admin_only=True),
-    # 模块名是 settings；views/__init__.py 里的 settings_view 只是对外别名
     NavItem("settings", "模型与配置", "🧩", "settings", admin_only=True),
 )
 

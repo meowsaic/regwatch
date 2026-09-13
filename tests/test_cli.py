@@ -43,11 +43,6 @@ def test_db_stats_reports_zero_cases(tmp_path: Path) -> None:
     assert "0" in result.stdout
 
 
-def test_db_import_rejects_missing_directory(tmp_path: Path) -> None:
-    result = _invoke(tmp_path / "cli.db", ["db", "import", "--data-root", str(tmp_path / "nope")])
-    assert result.exit_code == 1
-
-
 def test_summarize_without_cases_is_a_noop(tmp_path: Path) -> None:
     result = _invoke(tmp_path / "cli.db", ["summarize", "--dataset", "all"])
     assert result.exit_code == 0, result.output

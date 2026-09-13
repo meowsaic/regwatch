@@ -14,11 +14,9 @@ dependencies = [
   "rich>=13.0",
   "requests>=2.32",
   "beautifulsoup4>=4.12",
-  "aiohttp>=3.9",
   "pypdf>=4.0",
   "olefile>=0.47",
   "python-docx>=1.1",
-  "tqdm>=4.66",
 ]
 
 [project.optional-dependencies]
@@ -54,7 +52,6 @@ packages = ["src/regwatch"]
 include = [
   "/src",
   "/tests",
-  "/scripts",
   "/README.md",
   "/AGENTS.md",
   "/config.example.json",
@@ -77,8 +74,6 @@ src = ["src", "tests"]
 extend-exclude = [
   ".worktrees",
   "data",
-  "docs/archive",
-  "AMAC_Discipline_PDFs",
 ]
 
 [tool.ruff.lint]
@@ -127,7 +122,6 @@ plugins = []
 [[tool.mypy.overrides]]
 module = [
   "regwatch.db.repositories.*",
-  "regwatch.db.jsonio",
   "regwatch.sources.csrc.*",
   "regwatch.sources.amac",
   "regwatch.services.jobs",

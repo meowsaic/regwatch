@@ -18,8 +18,7 @@ from typing import Any
 import streamlit as st
 
 from regwatch.clock import now_iso
-from regwatch.domain import ModelProfile
-from regwatch.llm import LLMClient, LLMError
+from regwatch.llm import LLMError
 from regwatch.web import access
 from regwatch.web.components import ui
 from regwatch.web.components.data import services, settings
@@ -70,7 +69,7 @@ def render() -> None:
         ui.callout("服务未装配智能问答模块，请检查代码版本。", tone="danger", icon="⚠")
         return
 
-    client, source = _resolve_client(admin)
+    client, source = _resolve_client(qa, admin)
 
     # ── 顶部工具条 ──
     bar_mode, bar_status, bar_clear = st.columns([2.2, 3.2, 1.2], vertical_alignment="center")
@@ -149,37 +148,37 @@ def _credentials() -> dict[str, str]:
     return raw
 
 
-def _resolve_client(admin: bool) -> tuple[Any, str]:
-    """返回 ``(client, source)``；无可用客户端时 client 为 ``None``。"""
+def _resolve_client(qa: Any, admin: bool) -> tuple[Any, str]:
+    """返回 ``(client, source)``；无可用客户端时 client 为 ``None``。
+
+    客户端的构造统一在 :class:`~regwatch.services.qa.QaService`：
+    全局走任务绑定，会话手填凭证走 BYOK 快速失败策略；
+    本函数只负责权限判定与取值，凭证仅存 ``session_state``。
+    """
     cred = _credentials()
     use_global = admin and not cred.get("force_byok")
 
     if use_global:
-        cfg = settings()
-        try:
-            profile = cfg.resolve_profile(task="qa", required=False)
-        except Exception:  # pragma: no cover
-            profile = None
+        profile = settings().resolve_profile(task="qa", required=False)
         if profile is not None and profile.api_key:
             try:
-                return LLMClient(profile), "global"
+                return qa.resolve_client(), "global"
             except LLMError:
                 pass
 
     if not (cred.get("base_url") and cred.get("model") and cred.get("api_key")):
         return None, "none"
 
-    profile = ModelProfile(
-        id="byok",
-        label="会话手填模型",
-        base_url=cred.get("base_url", "").strip(),
-        model=cred.get("model", "").strip(),
-        api_key=cred.get("api_key", "").strip(),
+    return (
+        qa.resolve_client(
+            qa.byok_profile(
+                base_url=cred.get("base_url", ""),
+                model=cred.get("model", ""),
+                api_key=cred.get("api_key", ""),
+            )
+        ),
+        "byok",
     )
-    try:
-        return LLMClient(profile, max_retries=1), "byok"
-    except LLMError:
-        return None, "none"
 
 
 def _render_source_note(admin: bool, source: str) -> None:

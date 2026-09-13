@@ -1,6 +1,6 @@
 """采集层共享的 HTTP 基础设施。
 
-历史上 ``amac.py`` / ``csrc.py`` / ``csrc_bureaus.py`` / ``amac_monthly.py``
+历史上 ``amac.py`` / ``csrc.py`` / ``csrc_bureaus.py``
 各自维护一份 Session、重试与超时常量，超时从 15s 到 60s 不等，退避策略也各不相同。
 这里收敛为**一个可注入的客户端**：
 
@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import random
 import threading
 import time
 from collections.abc import Mapping
@@ -29,17 +28,22 @@ __all__ = [
 
 DEFAULT_TIMEOUT = 30.0
 
-#: 抓取 HTML 页面时的默认请求头
-DEFAULT_HEADERS: dict[str, str] = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-}
-
 DEFAULT_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
+
+#: 抓取 HTML 页面时的默认请求头。
+#: **必须带 UA**：CSRC 部分地方局首页（如甘肃、贵州）对无 UA 的请求直接返回 403，
+#: 导致行政处罚栏目 URL 自动发现失败、该局 penalty 整块抓不到。
+#: 裸 ``requests`` 调用方（:func:`regwatch.sources.bureaus.discover_penalty_url`）
+#: 直接使用本字典即可获得浏览器标识。
+DEFAULT_HEADERS: dict[str, str] = {
+    "User-Agent": DEFAULT_USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
 
 
 class HttpError(RuntimeError):
@@ -172,11 +176,6 @@ class RequestsHttpClient:
         if self._session is not None:
             self._session.close()
             self._session = None
-
-
-def jitter() -> float:
-    """返回一个 [0, 1) 的随机数，用于构造绕过缓存的查询参数。"""
-    return random.random()
 
 
 # ──────────────────────────── 共享会话 ────────────────────────────

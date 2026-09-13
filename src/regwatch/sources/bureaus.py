@@ -18,11 +18,14 @@ URL 模式说明：
 - 监管措施列表页：``https://www.csrc.gov.cn/csrc/c{path_code}/common_list_gd.shtml``
 - 行政处罚列表页（会本部）：``https://www.csrc.gov.cn/csrc/c101928/common_list.shtml?channelid=...``
 - 行政处罚列表页（地方局）：``https://www.csrc.gov.cn/{site_path}/c{xxx}/zfxxgk_zdgk.shtml?channelid=...``
+- 行政处罚栏目：37 个来源均已离线配置（见模块内 ``_PENALTY_CHANNELS``），
+  抓取时不再逐局访问首页；:func:`discover_penalty_url` 仅作为配置缺失 / 栏目更换时的兜底。
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 
 import requests
@@ -59,7 +62,14 @@ class Bureau:
     site_path: str = ""
 
     def __post_init__(self) -> None:
-        """初始化后处理：若未显式指定 site_path，则根据局类型推断默认值。"""
+        """初始化后处理：补全行政处罚栏目配置与 site_path 默认值。"""
+        # 行政处罚栏目：显式传参优先；未传时从集中配置 _PENALTY_CHANNELS 读取
+        if not self.penalty_url:
+            channel = _PENALTY_CHANNELS.get(self.name_en)
+            if channel:
+                base_url, channel_id = channel
+                self.penalty_url = f"{base_url}?channelid={channel_id}"
+                self.penalty_channelid = channel_id
         if self.site_path:
             return
         # 会本部站点路径为 csrc
@@ -79,29 +89,163 @@ def _build_measure_url(path_code: str) -> str:
     return f"https://www.csrc.gov.cn/csrc/{path_code}/common_list_gd.shtml"
 
 
-# 已知的行政处罚 channelid（来自 CSRC 官网）
-# 会本部行政处罚：c101928/common_list.shtml，channelid=28de6b87eda140cb93de4dd10d11867d
-# 该 channelid 通过 searchList API 返回 channelName="行政处罚"，total≈2014
-_HQ_PENALTY_CHANNELID = "28de6b87eda140cb93de4dd10d11867d"
-_HQ_PENALTY_URL = (
-    f"https://www.csrc.gov.cn/csrc/c101928/common_list.shtml?channelid={_HQ_PENALTY_CHANNELID}"
-)
-
-# 上海局行政处罚 channelid（来自官网政务公开页配置）
-_SHANGHAI_PENALTY_CHANNELID = "c8318fc200764e38b30116c2d5f72b4b"
-_SHANGHAI_PENALTY_URL = (
-    "https://www.csrc.gov.cn/shanghai/c103874/zfxxgk_zdgk.shtml"
-    f"?channelid={_SHANGHAI_PENALTY_CHANNELID}"
-)
-
-# 内蒙古局行政处罚 channelid
-# 注意：内蒙古局首页"行政处罚"导航链接指向的栏目无法正常列出案例，
-# 正确的行政处罚栏目位于 c103722，需显式配置。
-_NEIMENGGU_PENALTY_CHANNELID = "e4f2dbcdd85c4bac9a9e9a6f2d093d19"
-_NEIMENGGU_PENALTY_URL = (
-    "https://www.csrc.gov.cn/neimenggu/c103722/zfxxgk_zdgk.shtml"
-    f"?channelid={_NEIMENGGU_PENALTY_CHANNELID}"
-)
+# ── 行政处罚栏目配置（37 个来源，2026-09-13 离线发现并固化） ──
+# 显式配置后，抓取时不再访问地方局首页做自动发现——首页偶发 403 / 限流
+# 曾导致甘肃、贵州等局的行政处罚整块抓不到（无 UA 请求必现 403）。
+# 个别来源的特殊说明：
+#   * HQ：栏目页为 common_list.shtml，searchList API 返回 channelName="行政处罚"，total≈2000；
+#   * InnerMongolia：首页导航「行政处罚」指向的栏目无法列出案例，正确栏目在 c103722。
+# 网站改版导致某个栏目失效时，删除对应条目即可回落到 discover_penalty_url 自动发现。
+_PENALTY_CHANNELS: dict[str, tuple[str, str]] = {
+    "HQ": (
+        "https://www.csrc.gov.cn/csrc/c101928/common_list.shtml",
+        "28de6b87eda140cb93de4dd10d11867d",
+    ),
+    "Beijing": (
+        "https://www.csrc.gov.cn/beijing/c103570/zfxxgk_zdgk.shtml",
+        "53be9cf2273744cda5c5780e0dded972",
+    ),
+    "Tianjin": (
+        "https://www.csrc.gov.cn/tianjin/c103608/zfxxgk_zdgk.shtml",
+        "8dce98784326429e9c97515b634723fe",
+    ),
+    "Hebei": (
+        "https://www.csrc.gov.cn/hebei/c103646/zfxxgk_zdgk.shtml",
+        "e838879760e84c668062433e2cdbc389",
+    ),
+    "Shanxi": (
+        "https://www.csrc.gov.cn/shanxi/c103684/zfxxgk_zdgk.shtml",
+        "085ed9d1e1dc437cb9945e961fb2f5a0",
+    ),
+    "InnerMongolia": (
+        "https://www.csrc.gov.cn/neimenggu/c103722/zfxxgk_zdgk.shtml",
+        "e4f2dbcdd85c4bac9a9e9a6f2d093d19",
+    ),
+    "Liaoning": (
+        "https://www.csrc.gov.cn/liaoning/c103760/zfxxgk_zdgk.shtml",
+        "94cc260b27d2430b8c39c21e4627cf2e",
+    ),
+    "Jilin": (
+        "https://www.csrc.gov.cn/jilin/c103798/zfxxgk_zdgk.shtml",
+        "9a3520fd5ea644c2ad6e05acd0a05401",
+    ),
+    "Heilongjiang": (
+        "https://www.csrc.gov.cn/heilongjiang/c103836/zfxxgk_zdgk.shtml",
+        "370916bda2524acdb187191fbba13f44",
+    ),
+    "Shanghai": (
+        "https://www.csrc.gov.cn/shanghai/c103874/zfxxgk_zdgk.shtml",
+        "c8318fc200764e38b30116c2d5f72b4b",
+    ),
+    "Jiangsu": (
+        "https://www.csrc.gov.cn/jiangsu/c103912/zfxxgk_zdgk.shtml",
+        "b335834574a34e43874ef3dba68d5be5",
+    ),
+    "Zhejiang": (
+        "https://www.csrc.gov.cn/zhejiang/c103950/zfxxgk_zdgk.shtml",
+        "441d2ae10ef240cbbcfca758a73356f2",
+    ),
+    "Anhui": (
+        "https://www.csrc.gov.cn/anhui/c103988/zfxxgk_zdgk.shtml",
+        "83fb5344bde849ea8973f3715a680a15",
+    ),
+    "Fujian": (
+        "https://www.csrc.gov.cn/fujian/c104064/zfxxgk_zdgk.shtml",
+        "3df69151384a46cf8c8d11584cff5e94",
+    ),
+    "Jiangxi": (
+        "https://www.csrc.gov.cn/jiangxi/c104178/zfxxgk_zdgk.shtml",
+        "97691c60bc9a4b96af8b79df53b13b74",
+    ),
+    "Shandong": (
+        "https://www.csrc.gov.cn/shandong/c104216/zfxxgk_zdgk.shtml",
+        "3a1acab4996548faa7532b957ebf4f8e",
+    ),
+    "Henan": (
+        "https://www.csrc.gov.cn/henan/c104292/zfxxgk_zdgk.shtml",
+        "9724ed53f22a4333b91c65c349edaf48",
+    ),
+    "Hubei": (
+        "https://www.csrc.gov.cn/hubei/c104406/zfxxgk_zdgk.shtml",
+        "f0a7388893fa4c15a2d6482510e2fb31",
+    ),
+    "Hunan": (
+        "https://www.csrc.gov.cn/hunan/c104482/zfxxgk_zdgk.shtml",
+        "9182876b7fe841d3a2990998f5b756f3",
+    ),
+    "Guangdong": (
+        "https://www.csrc.gov.cn/guangdong/c104558/zfxxgk_zdgk.shtml",
+        "02a93424320e46dea2631da827f96174",
+    ),
+    "Guangxi": (
+        "https://www.csrc.gov.cn/guangxi/c104672/zfxxgk_zdgk.shtml",
+        "f12807ebb0f948afaf7070627fadad7e",
+    ),
+    "Hainan": (
+        "https://www.csrc.gov.cn/hainan/c104748/zfxxgk_zdgk.shtml",
+        "6d27bb42929c46ae8487a14f41fab43b",
+    ),
+    "Chongqing": (
+        "https://www.csrc.gov.cn/chongqing/c104824/zfxxgk_zdgk.shtml",
+        "febe5cf9074b4ce6a52fd3d34d7a5cba",
+    ),
+    "Sichuan": (
+        "https://www.csrc.gov.cn/sichuan/c104900/zfxxgk_zdgk.shtml",
+        "6cd6f0ccbd2f49c6af32878d34c54ae6",
+    ),
+    "Guizhou": (
+        "https://www.csrc.gov.cn/guizhou/c104862/zfxxgk_zdgk.shtml",
+        "8bcfadbce6b74f178c37e6eafa9438b0",
+    ),
+    "Yunnan": (
+        "https://www.csrc.gov.cn/yunnan/c104786/zfxxgk_zdgk.shtml",
+        "99481e931fc94d13b8592449acb386a4",
+    ),
+    "Tibet": (
+        "https://www.csrc.gov.cn/xizang/c104710/zfxxgk_zdgk.shtml",
+        "10f9fd2824c444ffafeaed5192682d55",
+    ),
+    "Shaanxi": (
+        "https://www.csrc.gov.cn/shaanxi/c104634/zfxxgk_zdgk.shtml",
+        "f0dad1ecc157416ea412e4a0608e04bd",
+    ),
+    "Gansu": (
+        "https://www.csrc.gov.cn/gansu/c104596/zfxxgk_zdgk.shtml",
+        "8e13b6a296324a60bc247a4a8a1df6a6",
+    ),
+    "Qinghai": (
+        "https://www.csrc.gov.cn/qinghai/c104520/zfxxgk_zdgk.shtml",
+        "439a663f89484376be17d4dcae953254",
+    ),
+    "Ningxia": (
+        "https://www.csrc.gov.cn/ningxia/c104444/zfxxgk_zdgk.shtml",
+        "45da89683b9d4a4c9657ebc12da2a73c",
+    ),
+    "Xinjiang": (
+        "https://www.csrc.gov.cn/xinjiang/c104368/zfxxgk_zdgk.shtml",
+        "3d0077b1d74e4965ade6bdf997d3fce3",
+    ),
+    "Shenzhen": (
+        "https://www.csrc.gov.cn/shenzhen/c104330/zfxxgk_zdgk.shtml",
+        "a3d847e5be4d40a5baaf387be4a56e9b",
+    ),
+    "Dalian": (
+        "https://www.csrc.gov.cn/dalian/c104254/zfxxgk_zdgk.shtml",
+        "fd0d6ccfc90640ec8af49b99d4af14f2",
+    ),
+    "Ningbo": (
+        "https://www.csrc.gov.cn/ningbo/c104140/zfxxgk_zdgk.shtml",
+        "8e2d5a7bf989489fb9caa99a39bfaa70",
+    ),
+    "Xiamen": (
+        "https://www.csrc.gov.cn/xiamen/c104102/zfxxgk_zdgk.shtml",
+        "0c1b68108fca4de0b240caaa32f901ed",
+    ),
+    "Qingdao": (
+        "https://www.csrc.gov.cn/qingdao/c104026/zfxxgk_zdgk.shtml",
+        "e3e00f2b72414f1c9ea951eeb010a6cf",
+    ),
+}
 
 
 # 所有 37 个证监局的完整配置清单
@@ -111,8 +255,6 @@ BUREAUS: list[Bureau] = [
         name_en="HQ",
         path_code="c106259",
         measure_url=_build_measure_url("c106259"),
-        penalty_url=_HQ_PENALTY_URL,
-        penalty_channelid=_HQ_PENALTY_CHANNELID,
         site_path="csrc",
     ),
     Bureau(
@@ -148,8 +290,6 @@ BUREAUS: list[Bureau] = [
         name_en="InnerMongolia",
         path_code="c100049",
         measure_url=_build_measure_url("c100049"),
-        penalty_url=_NEIMENGGU_PENALTY_URL,
-        penalty_channelid=_NEIMENGGU_PENALTY_CHANNELID,
         site_path="neimenggu",
     ),
     Bureau(
@@ -178,8 +318,6 @@ BUREAUS: list[Bureau] = [
         name_en="Shanghai",
         path_code="c100053",
         measure_url=_build_measure_url("c100053"),
-        penalty_url=_SHANGHAI_PENALTY_URL,
-        penalty_channelid=_SHANGHAI_PENALTY_CHANNELID,
         site_path="shanghai",
     ),
     Bureau(
@@ -440,16 +578,31 @@ def discover_penalty_url(bureau: Bureau) -> str | None:
         "局 %s(%s) 开始发现行政处罚 URL，访问首页：%s", bureau.name_cn, bureau.name_en, target_url
     )
 
-    try:
-        response = requests.get(
-            target_url,
-            headers=DEFAULT_HEADERS,
-            timeout=DEFAULT_TIMEOUT,
-        )
-        response.raise_for_status()
-        response.encoding = response.apparent_encoding or "utf-8"
-    except requests.RequestException as exc:
-        logger.error("局 %s(%s) 请求首页失败：%s", bureau.name_cn, bureau.name_en, exc)
+    # 首页偶发 403 / 超时（限流）会让整个局的 penalty 抓取落空，因此重试一次。
+    response: requests.Response | None = None
+    for attempt in range(2):
+        try:
+            response = requests.get(
+                target_url,
+                headers=DEFAULT_HEADERS,
+                timeout=DEFAULT_TIMEOUT,
+            )
+            response.raise_for_status()
+            response.encoding = response.apparent_encoding or "utf-8"
+            break
+        except requests.RequestException as exc:
+            response = None
+            logger.warning(
+                "局 %s(%s) 请求首页失败（第 %d 次）：%s",
+                bureau.name_cn,
+                bureau.name_en,
+                attempt + 1,
+                exc,
+            )
+            if attempt == 0:
+                time.sleep(2.0)
+    if response is None:
+        logger.error("局 %s(%s) 请求首页连续失败，放弃发现", bureau.name_cn, bureau.name_en)
         return None
 
     soup = BeautifulSoup(response.text, "html.parser")

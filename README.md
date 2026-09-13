@@ -3,8 +3,7 @@
 自动采集 **中国证券投资基金业协会（AMAC）纪律处分** 与 **中国证监会及派出机构的行政处罚 / 监管措施**，
 用大模型提取结构化字段，提供统计看板、案例检索与报告生成，并带网页操作界面。
 
-数据统一存放于**单个 SQLite 库**（WAL 模式），不再使用散落的 JSON 与索引文件；
-同时保留 JSON 导入 / 导出，可随时往返于旧布局。
+数据统一存放于**单个 SQLite 库**（WAL 模式），不再使用散落的 JSON 与索引文件。
 
 ## 功能一览
 
@@ -13,7 +12,7 @@
 | 统一采集 | AMAC 机构/人员纪律处分、CSRC 各来源 × 处罚/措施两类，支持日期范围、单链接、断点续传 |
 | 结构化摘要 | 大模型提取违规类型、处罚措施、涉及基金、法规依据、罚款金额、市场禁入；CSRC 额外做基金相关性精判 |
 | 统计与报告 | 违规分布、处罚归类、机构 vs 个人、法规引用 TOP、时间趋势；输出 Markdown / HTML / JSON |
-| 网页看板 | 总览、案例浏览、统计分析、任务中心、模型与配置五个页面 |
+| 网页看板 | 总览、案例浏览、统计分析、智能问答、任务中心、模型与配置六个页面 |
 | 统一模型接入 | 只需填写 base_url / api_key / model，兼容 DeepSeek 与任意 OpenAI 兼容端点 |
 | 双入口 | 同一套能力可在网页（`regwatch web`）或命令行（`regwatch`）执行 |
 
@@ -41,18 +40,6 @@ uv run regwatch web --port 8501
 > 也可以不用网页端：
 > `uv run regwatch config add-model --id deepseek --base-url https://api.deepseek.com --model deepseek-chat --api-key sk-xxx`
 
-## 数据层的迁移
-
-若本地仍是旧的 `data/**/cases` JSON 布局，用一次性脚本导入（只读原目录、只写新库，可重跑）：
-
-```powershell
-uv run python scripts/migrate_to_sqlite.py --dry-run   # 先看会导入什么
-uv run python scripts/migrate_to_sqlite.py             # 导入并自动对账
-```
-
-需要回退时：`uv run regwatch db export --out data_export`。
-旧配置里的 `data_roots` 六键会在首次载入时自动转换为 `database` 单键，并备份原 `config.json`。
-
 ## 命令行
 
 ```powershell
@@ -60,18 +47,16 @@ uv run regwatch --help
 
 # 数据库
 uv run regwatch db init                       # 建库 / 升级结构
-uv run regwatch db import --data-root data    # 旧 JSON 布局导入
-uv run regwatch db export --out data_export   # 导出为旧 JSON 布局
 uv run regwatch db rebuild-violations         # 分类体系升级后回填违规类型关联表（不调用模型）
+uv run regwatch db repair                     # 确定性数据质量修复（不调用模型）
 uv run regwatch db stats                      # 规模与状态分布
 
-# 抓取
+# 抓取（不填 --start / --end 时增量抓取：上次覆盖日期前 7 天 → 今天）
 uv run regwatch fetch amac     --start 2026-01-01 --end 2026-03-31
 uv run regwatch fetch csrc     --start 2022-01-01 --bureaus HQ,Beijing --types penalty
-uv run regwatch fetch monthly                        # 上月公告 PDF 归档
 uv run regwatch fetch url --url <案例链接> --dataset amac
 
-# 摘要与报告
+# 摘要与报告（summarize 默认处理全部未提取案例，含失败重试）
 uv run regwatch summarize --dataset all --workers 5
 uv run regwatch summarize --dataset csrc --redo    # 提示词 / 分类体系升级后重跑已完成案例
 uv run regwatch report --dataset amac --start 2026-01-01 --end 2026-03-31 --llm
@@ -100,6 +85,7 @@ uv run regwatch info     # 环境概览
 | 总览看板 | 核心指标卡、数据集构成、违规类型 TOP10、月度趋势、最新案例 |
 | 案例浏览 | 按 数据集 / 状态 / 案例类型 / 来源局 / 违规类型 / 日期区间 / 关键词 组合筛选；点选查看详情与决定书原文 |
 | 统计分析 | 违规分布、处罚构成、机构 vs 个人对比、法规引用 TOP、月度趋势、代表案例 |
+| 智能问答 | 自然语言提问或撰写专题报告：意图解析 → 案例检索 → 依据证据作答；公开部署下访客使用自己的 API Key |
 | 任务中心 | 发起抓取 / 摘要 / 报告 / 机构类型回填任务，实时进度与日志，支持取消 |
 | 模型与配置 | 模型条目增删改、连通性测试、任务到模型的绑定、并发与路径 |
 
@@ -113,7 +99,7 @@ uv run regwatch info     # 环境概览
 
 | 部署项 | 值 |
 |--------|-----|
-| Main file path | 公开只读看板：`deploy/streamlit_public.py`（只挂三个只读页）；自用私有：`deploy/streamlit_app.py`（五页，云端默认只读） |
+| Main file path | 公开只读看板：`deploy/streamlit_public.py`（只挂四个只读页）；自用私有：`deploy/streamlit_app.py`（六页，云端默认只读） |
 | 依赖清单 | `deploy/requirements.txt`（与入口同目录，避开根目录 `uv.lock` 的优先级） |
 | 数据与密钥 | 应用设置的 Secrets：`api_key_<模型ID>`、`database_url` |
 
@@ -130,18 +116,18 @@ src/regwatch/
 ├── domain/           领域层：枚举、数据模型、违规分类体系（无 IO）
 ├── settings.py       配置：单一库路径、模型条目、任务绑定、环境变量覆盖
 ├── logging_setup.py  统一日志与任务日志路由
-├── db/               数据层：schema.sql / 迁移器 / 连接工厂 / 四个仓储 / JSON 互转
+├── db/               数据层：schema.sql / 迁移器 / 连接工厂 / 四个仓储
 ├── llm/              OpenAI 兼容客户端与输出解析
-├── services/         用例层：摘要 / 统计 / 报告 / 机构类型 / 任务编排 + 组合根
-├── sources/          采集层：共享 HTTP/HTML/文档解析 + amac / csrc / 月度公告
+├── services/         用例层：摘要 / 统计 / 报告 / 机构类型 / 问答 / 任务编排 + 组合根
+├── sources/          采集层：共享 HTTP/HTML/文档解析 + amac / csrc / bureaus
 ├── cli/              命令行（按子命令拆分）
-└── web/              Streamlit 网页端（入口 / 状态 / 组件 / 五个页面）
+└── web/              Streamlit 网页端（入口 / 状态 / 组件 / 六个页面）
 
-deploy/streamlit_app.py   Streamlit Community Cloud 部署入口（依赖清单在同目录 requirements.txt）
+deploy/streamlit_app.py     Streamlit Community Cloud 私有部署入口
+deploy/streamlit_public.py  公开只读看板入口（依赖清单与入口同目录 requirements.txt）
 data/regwatch.db      SQLite 主库（gitignore）
 config.example.json   配置样例（入库）
 config.json           本地配置（含密钥，gitignore）
-scripts/migrate_to_sqlite.py   旧布局一次性导入
 tests/                pytest 测试（全部离线、内存库）
 ```
 
@@ -161,7 +147,7 @@ tests/                pytest 测试（全部离线、内存库）
 | `token_param` | `max_tokens` 或 `max_completion_tokens`（少数端点要求后者） |
 | `extra` | 透传给接口的附加参数，如 `{"thinking": {"type": "disabled"}}` |
 
-任务与模型解耦：`tasks.summarize / tasks.report / tasks.vision` 分别指定用哪个模型条目；
+任务与模型解耦：`tasks.summarize / tasks.report / tasks.vision / tasks.qa` 分别指定用哪个模型条目；
 未绑定时使用第一个模型。若端点不支持某个参数，客户端会自动剥离该参数重试（有次数上限）。
 
 ## 测试与质量门禁
@@ -169,20 +155,19 @@ tests/                pytest 测试（全部离线、内存库）
 ```powershell
 uv run python -m pytest                       # 全量测试（离线、内存库）
 uv run python -m pytest tests/test_db.py -v   # 单模块
-uv run ruff check src tests                   # 静态检查
-uv run ruff format src tests                  # 格式化
+uv run ruff check src tests deploy            # 静态检查
+uv run ruff format src tests deploy           # 格式化
 uv run mypy src/regwatch                      # 类型检查
 uv run pre-commit run --all-files             # 提交前检查（需先 pre-commit install）
 ```
 
-测试覆盖：领域模型与枚举、配置与旧键迁移、四个仓储与 JSON 互转、模型客户端降级与解析、
-摘要流程（成功/跳过/失败）、统计与报告渲染、机构类型回填、任务编排与持久化、CLI 子命令。
+测试覆盖：领域模型与枚举、配置与环境变量覆盖、四个仓储、模型客户端降级与解析、
+摘要流程（成功/跳过/失败）、统计与报告渲染、机构类型回填、智能问答、任务编排与持久化、CLI 子命令。
 
 ## 常见问题
 
 - **网页打开但图表为空**：先到「任务中心」运行一次抓取与摘要，或点击侧边栏「刷新数据缓存」。
 - **摘要任务报未配置模型**：到「模型与配置」页填写 base_url / api_key / model 并保存。
 - **想换数据目录**：`regwatch config set-database <路径>`，相对路径基于项目根。
-- **旧数据在 JSON 里读不到**：先执行 `scripts/migrate_to_sqlite.py` 导入。
 - **国内网络拉依赖慢**：`uv sync` 可配合镜像，例如
   `$env:UV_DEFAULT_INDEX="https://pypi.tuna.tsinghua.edu.cn/simple"`

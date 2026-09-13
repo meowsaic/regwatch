@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from regwatch.domain import CaseRecord, CaseRow, CaseStatus, Dataset, QaIntent
 from regwatch.domain.models import CaseQuery
+from regwatch.llm import LLMError
 from regwatch.services import AnalysisService, QaService, build_evidence_pack
 from regwatch.services.qa import QaRetrieval
 
@@ -75,6 +78,13 @@ class TestQaIntent:
         assert query.limit == 10
         assert query.statuses == (CaseStatus.DONE,)
 
+    def test_to_case_query_excludes_skipped_by_default(self) -> None:
+        """关键词检索不指定违规类型时也应排除「判定非基金相关」的占位记录。"""
+        intent = QaIntent(keywords=("私募",))
+        assert intent.to_case_query().statuses == (CaseStatus.DONE, CaseStatus.PENDING)
+        empty = QaIntent()
+        assert empty.to_case_query().statuses == (CaseStatus.DONE, CaseStatus.PENDING)
+
     def test_swap_inverted_dates(self) -> None:
         intent = QaIntent(date_from="2025-06-01", date_to="2024-01-01")
         assert intent.date_from == "2024-01-01"
@@ -116,6 +126,33 @@ class TestEvidencePack:
         assert amac_case.case_id in text
         assert "公开谴责" in text
         assert "违规募集" in text
+
+
+class TestQaClientResolution:
+    def test_byok_profile_strips_whitespace(self) -> None:
+        profile = QaService.byok_profile(
+            base_url=" https://api.deepseek.com ", model=" deepseek-chat ", api_key=" sk-1 "
+        )
+        assert profile.id == "byok"
+        assert profile.base_url == "https://api.deepseek.com"
+        assert profile.model == "deepseek-chat"
+        assert profile.api_key == "sk-1"
+        assert profile.missing_fields() == []
+
+    def test_resolve_client_builds_fast_fail_client(self, store) -> None:
+        """BYOK 客户端按手填条目构造，重试策略为快速失败，不写 config。"""
+        analysis = AnalysisService(store.cases, store.summaries)
+        service = QaService(None, analysis)
+        profile = service.byok_profile(base_url="http://x", model="m", api_key="sk-1")
+        client = service.resolve_client(profile)
+        assert client.profile.id == "byok"
+        assert client.max_retries == 1
+
+    def test_resolve_client_without_factory_raises(self, store) -> None:
+        analysis = AnalysisService(store.cases, store.summaries)
+        service = QaService(None, analysis)
+        with pytest.raises(LLMError):
+            service.resolve_client()
 
 
 class TestQaServicePipeline:

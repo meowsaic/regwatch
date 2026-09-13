@@ -5,10 +5,9 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 import typer
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
 from .. import resolve_services
-from ..common import console, print_kv
+from ..common import print_kv, progress_bar
 
 app = typer.Typer(help="机构登记类型回填", invoke_without_command=True)
 
@@ -20,22 +19,14 @@ def org_type(
     limit: Annotated[int, typer.Option("--limit", help="最多处理多少条，0=全部")] = 0,
     interactive: Annotated[bool, typer.Option("--interactive", help="交互式人工补全")] = False,
 ) -> None:
-    """为 AMAC 机构类案例补齐机构登记类型。"""
+    """为 AMAC 机构类案例补齐机构登记类型（默认回填全部未填写的案例）。"""
     services = resolve_services()
     if interactive:
         filled, skipped = services.org_type.interactive_fill()
         print_kv("交互式补全", {"已补全": filled, "已跳过": skipped})
         return
 
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        TimeElapsedColumn(),
-        console=console,
-        transient=True,
-    ) as progress:
+    with progress_bar() as progress:
         task_id: list[Any] = [None]
 
         def hook(done: int, total: int, label: str = "") -> None:

@@ -2,8 +2,9 @@
 
 职责边界：
 
-- :class:`JobSpec` —— **任务参数的唯一真源**：网页表单与 CLI 参数都由它生成，
-  不再是 ``JOB_PARAMS`` 与 ``run_task`` 两份各说各话；
+- :class:`JobSpec` —— 任务参数的规格定义（网页端任务表单由它生成）；
+  CLI 子命令的参数声明在 ``cli/commands/*``，两侧共用
+  :mod:`regwatch.sources.common` 的日期 / 列表解析；
 - :class:`JobRunner` —— 按任务类型分发执行；
 - :class:`JobManager` —— 只管线程、取消与进度，状态与日志全部落库，
   对外返回**不可变快照**，避免调用方拿到可变的共享对象。
@@ -23,6 +24,7 @@ from typing import Any
 from ..clock import now_iso
 from ..domain import JobKind, JobStatus, TaskRecord
 from ..logging_setup import bind_task, get_logger, get_task_log_router
+from ..sources.common import FETCH_OVERLAP_DAYS, parse_iso_date, split_csv
 
 logger = get_logger("jobs")
 
@@ -116,8 +118,13 @@ JOB_SPECS: dict[JobKind, JobSpec] = {
     JobKind.FETCH_AMAC: JobSpec(
         JobKind.FETCH_AMAC,
         (
-            ParamSpec("start_date", "起始日期", kind="date", hint="不填=上一季度"),
-            ParamSpec("end_date", "结束日期", kind="date", hint="不填=上一季度"),
+            ParamSpec(
+                "start_date",
+                "起始日期",
+                kind="date",
+                hint=f"不填=上次覆盖日期前 {FETCH_OVERLAP_DAYS} 天（空库=上季度初）",
+            ),
+            ParamSpec("end_date", "结束日期", kind="date", hint="不填=今天"),
             ParamSpec(
                 "categories", "抓取分类", default="all", hint="all / Institution / Personnel"
             ),
@@ -126,21 +133,25 @@ JOB_SPECS: dict[JobKind, JobSpec] = {
     JobKind.FETCH_CSRC: JobSpec(
         JobKind.FETCH_CSRC,
         (
-            ParamSpec("start_date", "起始日期", kind="date", hint="不填=2022-01-01"),
+            ParamSpec(
+                "start_date",
+                "起始日期",
+                kind="date",
+                hint=f"不填=上次覆盖日期前 {FETCH_OVERLAP_DAYS} 天（空库=2022-01-01）",
+            ),
             ParamSpec("end_date", "结束日期", kind="date", hint="不填=今天"),
             ParamSpec("bureaus", "来源局", default="all", hint="逗号分隔英文标识，all=全部"),
             ParamSpec("case_types", "案例类型", default="all", hint="all / penalty / measure"),
             ParamSpec("concurrency", "并发数", kind="int", default=0, hint="0=使用配置默认值"),
         ),
     ),
-    JobKind.FETCH_MONTHLY: JobSpec(JobKind.FETCH_MONTHLY, ()),
     JobKind.SUMMARIZE: JobSpec(
         JobKind.SUMMARIZE,
         (
             ParamSpec("dataset", "数据集", default="all", hint="all / amac / csrc"),
             ParamSpec("workers", "并发数", kind="int", default=0, hint="0=使用配置默认值"),
             ParamSpec("retry_failed", "重试失败", kind="bool", default=True),
-            ParamSpec("limit", "抽样上限", kind="int", default=0, hint="0=全部处理"),
+            ParamSpec("limit", "抽样上限", kind="int", default=0, hint="0=全部未提取的案例"),
         ),
     ),
     JobKind.REPORT: JobSpec(
@@ -156,7 +167,7 @@ JOB_SPECS: dict[JobKind, JobSpec] = {
         JobKind.ORG_TYPE,
         (
             ParamSpec("dry_run", "仅试算", kind="bool", default=False, hint="只统计不写盘"),
-            ParamSpec("limit", "抽样上限", kind="int", default=0, hint="0=全部处理"),
+            ParamSpec("limit", "抽样上限", kind="int", default=0, hint="0=全部未填写的案例"),
         ),
     ),
 }
@@ -190,19 +201,11 @@ class JobContext:
 
 
 def _parse_date(value: str | None, field_name: str) -> Any:
-    from datetime import datetime
-
-    text = (value or "").strip()
-    if not text:
-        return None
+    """把任务参数里的日期串转成 ``date``；格式非法时抛 :class:`JobError`。"""
     try:
-        return datetime.strptime(text, "%Y-%m-%d").date()
+        return parse_iso_date(value, field_name)
     except ValueError as exc:
-        raise JobError(f"{field_name} 日期格式应为 YYYY-MM-DD，收到：{text!r}") from exc
-
-
-def _split_csv(value: str) -> list[str]:
-    return [item.strip() for item in (value or "").split(",") if item.strip()]
+        raise JobError(str(exc)) from exc
 
 
 class JobRunner:
@@ -244,7 +247,7 @@ def _run_fetch_amac(context: JobContext, params: dict[str, Any]) -> dict[str, An
     result = amac.fetch(
         start_date=_parse_date(params.get("start_date"), "起始日期"),
         end_date=_parse_date(params.get("end_date"), "结束日期"),
-        categories=None if categories in ("", "all") else _split_csv(categories),
+        categories=None if categories in ("", "all") else split_csv(categories),
         store=context.services.store,
         llm=context.services.llm,
         org_type=context.services.org_type,
@@ -261,21 +264,13 @@ def _run_fetch_csrc(context: JobContext, params: dict[str, Any]) -> dict[str, An
     result = csrc.fetch(
         start_date=_parse_date(params.get("start_date"), "起始日期"),
         end_date=_parse_date(params.get("end_date"), "结束日期"),
-        bureaus=None if bureaus in ("", "all") else _split_csv(bureaus),
-        case_types=None if case_types in ("", "all") else _split_csv(case_types),
+        bureaus=None if bureaus in ("", "all") else split_csv(bureaus),
+        case_types=None if case_types in ("", "all") else split_csv(case_types),
         concurrency=int(params.get("concurrency") or 0) or None,
         store=context.services.store,
         on_progress=context.progress,
     )
     return _as_payload(result)
-
-
-def _run_fetch_monthly(context: JobContext, params: dict[str, Any]) -> dict[str, Any]:
-    from ..sources import amac_monthly
-
-    return amac_monthly.download_last_month(
-        store=context.services.store, http=context.services.http
-    )
 
 
 def _run_summarize(context: JobContext, params: dict[str, Any]) -> dict[str, Any]:
@@ -343,7 +338,6 @@ def _run_org_type(context: JobContext, params: dict[str, Any]) -> dict[str, Any]
 _DISPATCH: dict[JobKind, Callable[[JobContext, dict[str, Any]], dict[str, Any]]] = {
     JobKind.FETCH_AMAC: _run_fetch_amac,
     JobKind.FETCH_CSRC: _run_fetch_csrc,
-    JobKind.FETCH_MONTHLY: _run_fetch_monthly,
     JobKind.SUMMARIZE: _run_summarize,
     JobKind.REPORT: _run_report,
     JobKind.ORG_TYPE: _run_org_type,
@@ -378,6 +372,22 @@ class JobManager:
         self._lock = threading.RLock()
         router = log_router if log_router is not None else get_task_log_router()
         router.add_sink(self._persist_log)
+        self._recover_orphans()
+
+    def _recover_orphans(self) -> None:
+        """启动恢复：把库里遗留的未结束任务标记为失败。
+
+        任务线程只存在于本进程内存；进程重启后库里 ``pending`` / ``running``
+        的记录必然已无对应线程，不回收会永远显示「执行中」且无法取消。
+        """
+        try:
+            stale = self._tasks.running_ids()
+        except Exception:  # pragma: no cover - 库不可用时跳过恢复
+            return
+        for task_id in stale:
+            self._tasks.finish(task_id, JobStatus.FAILED, message="进程重启，任务已中断")
+        if stale:
+            logger.warning("启动恢复：%d 条遗留任务标记为失败", len(stale))
 
     # ── 日志 ──
 
@@ -467,17 +477,20 @@ class JobManager:
         return job_id
 
     def cancel(self, job_id: str) -> bool:
-        """请求取消任务；仅未结束的任务可取消。"""
+        """请求取消任务；仅未结束的任务可取消。
+
+        没有本进程执行线程（如跨进程遗留的记录）时，仅把库中状态落为取消。
+        """
         with self._lock:
             handle = self._handles.get(job_id)
-        if handle is None:
-            return False
-        handle.cancel_event.set()
+        if handle is not None:
+            handle.cancel_event.set()
         record = self._tasks.get(job_id)
         if record is not None and not record.status.is_finished:
             self._tasks.finish(job_id, JobStatus.CANCELLED, message="任务已取消")
-        logger.info("已请求取消任务：%s", job_id)
-        return True
+            logger.info("已请求取消任务：%s", job_id)
+            return True
+        return handle is not None
 
     def wait(
         self, job_id: str, timeout: float | None = None, poll: float = 0.2
@@ -552,8 +565,6 @@ def _summarize_result(record: TaskRecord, result: dict[str, Any]) -> str:
 
         names = "、".join(Path(path).name for path in paths.values())
         return f"已生成报告：{names or '无产物'}"
-    if record.kind is JobKind.FETCH_MONTHLY:
-        return f"下载成功 {result.get('success', 0)} 个，失败 {result.get('failed', 0)} 个"
     if record.kind is JobKind.ORG_TYPE:
         return (
             f"共 {result.get('total', 0)} 条：补全 {result.get('org_type_filled', 0)}，"

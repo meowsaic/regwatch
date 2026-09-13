@@ -6,43 +6,30 @@
 from __future__ import annotations
 
 from datetime import date
-from pathlib import Path
 from typing import Annotated, Any
 
 import typer
-from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.progress import Progress
 
 from ...domain import Dataset
-from ...sources import amac, amac_monthly, csrc
+from ...sources import amac, csrc
+from ...sources.common import FETCH_OVERLAP_DAYS, parse_iso_date, split_csv
+from ...sources.csrc.constants import DEFAULT_START_DATE
 from .. import resolve_services
-from ..common import console, fail, print_kv
+from ..common import console, fail, print_kv, progress_bar
 
 app = typer.Typer(help="案例抓取", no_args_is_help=True)
 
+#: AMAC 全量重扫起点：官网现存最早的机构处分案例发布于 2015-01-20
+AMAC_FULL_START = date(2015, 1, 1)
+
 
 def _parse_date(value: str | None, field_name: str) -> date | None:
-    from datetime import datetime
-
-    text = (value or "").strip()
-    if not text:
-        return None
+    """解析 ``YYYY-MM-DD``；格式非法时按命令行错误退出。"""
     try:
-        return datetime.strptime(text, "%Y-%m-%d").date()
+        return parse_iso_date(value, field_name)
     except ValueError as exc:
-        fail(f"{field_name} 日期格式应为 YYYY-MM-DD，收到：{text!r}")
-        raise typer.Exit(1) from exc
-
-
-def _progress() -> Progress:
-    return Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.completed}/{task.total}"),
-        TimeElapsedColumn(),
-        console=console,
-        transient=True,
-    )
+        fail(str(exc))
 
 
 def _hook(progress: Progress):
@@ -59,22 +46,31 @@ def _hook(progress: Progress):
 
 @app.command("amac")
 def fetch_amac(
-    start: Annotated[str, typer.Option("--start", help="起始日期 YYYY-MM-DD，不填=上一季度")] = "",
-    end: Annotated[str, typer.Option("--end", help="结束日期 YYYY-MM-DD")] = "",
+    start: Annotated[
+        str,
+        typer.Option(
+            "--start",
+            help=f"起始日期 YYYY-MM-DD，不填=上次覆盖日期前 {FETCH_OVERLAP_DAYS} 天（空库=上季度初）",
+        ),
+    ] = "",
+    end: Annotated[str, typer.Option("--end", help="结束日期 YYYY-MM-DD，不填=今天")] = "",
     categories: Annotated[
         str, typer.Option("--categories", help="all / Institution / Personnel，逗号分隔")
     ] = "all",
+    full: Annotated[
+        bool,
+        typer.Option(
+            "--full",
+            help=f"全量重扫（补历史缺口）：从 {AMAC_FULL_START} 起，已入库案例自动跳过",
+        ),
+    ] = False,
 ) -> None:
     """抓取中基协纪律处分案例。"""
     services = resolve_services()
-    selected = (
-        None
-        if categories.strip().lower() in ("", "all")
-        else [item.strip() for item in categories.split(",") if item.strip()]
-    )
-    with _progress() as progress:
+    selected = None if categories.strip().lower() in ("", "all") else split_csv(categories)
+    with progress_bar() as progress:
         result = amac.fetch(
-            start_date=_parse_date(start, "起始日期"),
+            start_date=AMAC_FULL_START if full else _parse_date(start, "起始日期"),
             end_date=_parse_date(end, "结束日期"),
             categories=selected,
             store=services.store,
@@ -87,7 +83,13 @@ def fetch_amac(
 
 @app.command("csrc")
 def fetch_csrc(
-    start: Annotated[str, typer.Option("--start", help="起始日期，不填=2022-01-01")] = "",
+    start: Annotated[
+        str,
+        typer.Option(
+            "--start",
+            help=f"起始日期，不填=上次覆盖日期前 {FETCH_OVERLAP_DAYS} 天（空库=2022-01-01）",
+        ),
+    ] = "",
     end: Annotated[str, typer.Option("--end", help="结束日期，不填=今天")] = "",
     bureaus: Annotated[
         str, typer.Option("--bureaus", help="来源局英文标识，逗号分隔；all=全部")
@@ -96,35 +98,27 @@ def fetch_csrc(
         str, typer.Option("--types", help="all / penalty / measure，逗号分隔")
     ] = "all",
     concurrency: Annotated[int, typer.Option("--concurrency", help="并发线程数")] = 0,
+    full: Annotated[
+        bool,
+        typer.Option(
+            "--full",
+            help=f"全量重扫（补历史缺口）：等价于 --start {DEFAULT_START_DATE}，已入库案例自动跳过",
+        ),
+    ] = False,
 ) -> None:
     """抓取证监会处罚与监管措施。"""
     services = resolve_services()
-    with _progress() as progress:
+    with progress_bar() as progress:
         result = csrc.fetch(
-            start_date=_parse_date(start, "起始日期"),
+            start_date=DEFAULT_START_DATE if full else _parse_date(start, "起始日期"),
             end_date=_parse_date(end, "结束日期"),
-            bureaus=None
-            if bureaus.strip().lower() in ("", "all")
-            else [item.strip() for item in bureaus.split(",") if item.strip()],
-            case_types=None
-            if types.strip().lower() in ("", "all")
-            else [item.strip() for item in types.split(",") if item.strip()],
+            bureaus=None if bureaus.strip().lower() in ("", "all") else split_csv(bureaus),
+            case_types=None if types.strip().lower() in ("", "all") else split_csv(types),
             store=services.store,
             concurrency=concurrency or None,
             on_progress=_hook(progress),
         )
     print_kv("CSRC 抓取结果", result.to_dict())
-
-
-@app.command("monthly")
-def fetch_monthly(
-    directory: Annotated[
-        Path | None, typer.Option("--dir", help="归档根目录，默认 <项目根>/AMAC_Discipline_PDFs")
-    ] = None,
-) -> None:
-    """下载上一个自然月的 AMAC 公告 PDF。"""
-    summary = amac_monthly.download_last_month(directory)
-    print_kv("AMAC 月度公告下载", summary)
 
 
 @app.command("url")

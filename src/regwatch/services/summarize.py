@@ -279,6 +279,11 @@ class SummarizationService:
                 self._cases.set_punished_entity(
                     case.dataset, case.case_id, summary.punished_entity, only_if_empty=True
                 )
+        elif case.dataset is Dataset.CSRC:
+            # CSRC 的模型提取优先（正文"当事人"段最准），回退到采集期从标题/正文正则提取值
+            summary.punished_entity = str(extracted.get("punished_entity") or "") or (
+                case.punished_entities
+            )
 
         self._summaries.upsert(summary, status=CaseStatus.DONE)
         logger.info("  [✓] %s | %s | %s", case.case_id, summary.entity_type, summary.violation_type)

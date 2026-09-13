@@ -40,23 +40,9 @@ __all__ = [
     "compute_entity_comparison",
     "compute_legal_basis_stats",
     "compute_punishment_stats",
-    "compute_time_trend",
     "compute_violation_stats",
-    "normalize_violation_types",
     "pick_representative_cases",
 ]
-
-
-# ──────────────────────────── 归一化 ────────────────────────────
-
-
-def normalize_violation_types(raw: str) -> list[str]:
-    """把 ``violation_type`` 多值字段拆分并归一到分类体系。
-
-    与 :func:`regwatch.domain.violations.normalize_violations` 等价，
-    保留此别名以维持历史调用点与报告口径。
-    """
-    return normalize_violations(raw)
 
 
 def _percent(part: int, whole: int) -> float:
@@ -180,24 +166,6 @@ def compute_entity_comparison(rows: Sequence[CaseRow]) -> dict[str, Any]:
     }
 
 
-def compute_time_trend(rows: Sequence[CaseRow], granularity: str = "month") -> list[dict[str, Any]]:
-    """按月（或按年）统计案例数量趋势。"""
-    prefix_len = 7 if granularity == "month" else 4
-    buckets: dict[str, dict[str, int]] = {}
-    for row in rows:
-        key = row.date[:prefix_len] if len(row.date) >= prefix_len else ""
-        if not key:
-            continue
-        bucket = buckets.setdefault(key, {"count": 0, "institutions": 0, "personnel": 0})
-        bucket["count"] += 1
-        if row.entity_type == "机构":
-            bucket["institutions"] += 1
-        elif row.entity_type == "个人":
-            bucket["personnel"] += 1
-
-    return [{"period": key, **values} for key, values in sorted(buckets.items())]
-
-
 def compute_bureau_stats(rows: Sequence[CaseRow], limit: int = 15) -> list[tuple[str, int]]:
     """来源局分布（仅 CSRC 有意义）。"""
     counter: Counter[str] = Counter()
@@ -304,8 +272,10 @@ def analyze(rows: Sequence[CaseRow]) -> AnalysisResult:
             "punishment": compute_punishment_stats(rows),
             "legal": compute_legal_basis_stats(rows),
             "comparison": compute_entity_comparison(rows),
-            "time_trend": compute_time_trend(rows),
-            "time_trend_yearly": compute_time_trend(rows, granularity="year"),
+            # 趋势统一由 SQL 聚合产出（见 AnalysisService.time_trend）：
+            # 纯行分析没有查询条件，这里留空，由 analyze_query 回填。
+            "time_trend": [],
+            "time_trend_yearly": [],
             "bureau_top": compute_bureau_stats(rows),
             "dataset_split": compute_dataset_split(rows),
             "representative": pick_representative_cases(violation["case_map"]),
@@ -327,8 +297,16 @@ class AnalysisService:
     def analyze(self, rows: Sequence[CaseRow]) -> AnalysisResult:
         return analyze(rows)
 
+    def time_trend(self, query: CaseQuery, granularity: str = "month") -> list[dict[str, Any]]:
+        """按月 / 年统计趋势；总览看板与统计页共用这一份 SQL 口径。"""
+        return self._cases.time_trend(query, granularity)
+
     def analyze_query(self, query: CaseQuery) -> AnalysisResult:
-        return analyze(self._cases.search(query))
+        """取数并做全维度统计，趋势用 SQL 口径回填，与总览看板一致。"""
+        result = analyze(self._cases.search(query))
+        result.stats["time_trend"] = self.time_trend(query)
+        result.stats["time_trend_yearly"] = self.time_trend(query, granularity="year")
+        return result
 
     def date_range(self, query: CaseQuery) -> tuple[str, str]:
         """筛选结果的日期上下界。"""
@@ -337,15 +315,20 @@ class AnalysisService:
     def overview(self, query: CaseQuery) -> dict[str, Any]:
         """纯 SQL 聚合的看板指标（不载入全部行）。"""
         date_min, date_max = self._cases.date_range(query)
+        # bureau 只有 CSRC 有值，空桶（AMAC 案例）会伪装成「未知」霸榜，直接剔除
+        bureau_items = [
+            (name, count) for name, count in self._cases.aggregate(query, "bureau") if name
+        ]
         return {
             "total": self._cases.count(query),
             "status": dict(self._cases.aggregate(query, "status")),
             "dataset": dict(self._cases.aggregate(query, "dataset")),
-            "bureau": self._cases.aggregate(query, "bureau")[:15],
+            "bureau": bureau_items[:15],
             "case_type": dict(self._cases.aggregate(query, "case_type")),
             "entity_type": dict(self._cases.aggregate(query, "entity_type")),
             "violations": self._summaries.violation_distribution(query),
-            "time_trend": self._cases.time_trend(query),
+            "time_trend": self.time_trend(query),
+            "time_trend_yearly": self.time_trend(query, granularity="year"),
             "date_min": date_min,
             "date_max": date_max,
         }

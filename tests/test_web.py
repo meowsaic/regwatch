@@ -29,7 +29,7 @@ def test_app_path_exists() -> None:
 
 
 def test_app_runs_without_exception() -> None:
-    """回归：五个页面的 url_path 必须唯一，默认页渲染不能抛异常。
+    """回归：六个页面的 url_path 必须唯一，默认页渲染不能抛异常。
 
     曾经所有视图入口都叫 ``render``，Streamlit 按函数名推断出重复
     pathname 而直接拒绝启动；随后又暴露出 ``CaseRow.to_dict`` 缺展示字段。
@@ -67,7 +67,7 @@ def test_cloud_entry_runs_without_exception(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 def test_public_entry_runs_without_exception(monkeypatch: pytest.MonkeyPatch) -> None:
-    """公开入口（``deploy/streamlit_public.py``）的三个页面能正常启动。"""
+    """公开入口（``deploy/streamlit_public.py``）的四个页面能正常启动。"""
     pytest.importorskip("streamlit.testing.v1")
     from streamlit.testing.v1 import AppTest
 
@@ -646,6 +646,19 @@ def test_jobs_submit_form_uses_date_input(monkeypatch: pytest.MonkeyPatch) -> No
     assert "job-end_date" not in text_keys
 
 
+def test_jobs_page_shows_coverage_preview(monkeypatch: pytest.MonkeyPatch) -> None:
+    """任务中心：提交区显示各数据集上次覆盖日期与默认增量区间，便于预估工作量。"""
+    pytest.importorskip("streamlit.testing.v1")
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)
+    at = AppTest.from_string(_VIEW_SCRIPT.format(view="jobs"), default_timeout=180)
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+    markdown = "\n".join(str(item.value) for item in at.markdown)
+    assert "上次覆盖至" in markdown
+
+
 def test_jobs_view_skips_auto_rerun_without_script_ctx() -> None:
     """未完成任务时：非真实 Streamlit 会话不得 sleep+rerun，避免 AppTest 卡死。"""
     from regwatch.web.views import jobs as jobs_view
@@ -726,7 +739,9 @@ def test_qa_chat_submit_renders_answer(monkeypatch: pytest.MonkeyPatch) -> None:
         qa = _Qa()
 
     monkeypatch.setattr("regwatch.web.views.qa.services", lambda: _Services())
-    monkeypatch.setattr("regwatch.web.views.qa._resolve_client", lambda admin: (object(), "byok"))
+    monkeypatch.setattr(
+        "regwatch.web.views.qa._resolve_client", lambda _qa, _admin: (object(), "byok")
+    )
     monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)
 
     at = AppTest.from_string(_VIEW_SCRIPT.format(view="qa"), default_timeout=180)
@@ -792,7 +807,9 @@ def test_qa_answer_lists_cases_below(monkeypatch: pytest.MonkeyPatch) -> None:
         qa = _Qa()
 
     monkeypatch.setattr("regwatch.web.views.qa.services", lambda: _Services())
-    monkeypatch.setattr("regwatch.web.views.qa._resolve_client", lambda admin: (object(), "byok"))
+    monkeypatch.setattr(
+        "regwatch.web.views.qa._resolve_client", lambda _qa, _admin: (object(), "byok")
+    )
     monkeypatch.delenv("REGWATCH_READ_ONLY", raising=False)
 
     at = AppTest.from_string(_VIEW_SCRIPT.format(view="qa"), default_timeout=180)
@@ -806,3 +823,54 @@ def test_qa_answer_lists_cases_below(monkeypatch: pytest.MonkeyPatch) -> None:
     csv = frame.to_csv()
     assert "某某基金管理有限公司" in csv
     assert "https://example.com/case" in csv
+
+
+def test_yearly_bar_splits_projection() -> None:
+    """年度柱状图：推算年份在实际值之上堆叠半透明段，其余年份单柱。"""
+    pytest.importorskip("plotly")
+    from regwatch.web.components.charts import yearly_bar
+
+    fig = yearly_bar(["2024", "2025", "2026"], [10, 20, 14], estimated={"2026": 20})
+    assert len(fig.data) == 2, "推算时应有两个 trace（实际 + 推算）"
+    assert list(fig.data[0].y) == [10, 20, 14]
+    assert list(fig.data[1].y) == [0, 0, 6]
+
+    plain = yearly_bar(["2024", "2025"], [10, 20])
+    assert len(plain.data) == 1, "无推算时只有实际值一个 trace"
+
+
+def test_heatmap_year_axis_is_categorical() -> None:
+    """热力图年份轴必须是分类轴，否则纯数字年份渲染出 2025.8 之类刻度。"""
+    pytest.importorskip("plotly")
+    from regwatch.web.components.charts import heat_from_periods
+
+    fig = heat_from_periods(["2025-06", "2026-03"], [5, 7])
+    assert fig.layout.yaxis.type == "category"
+
+
+def test_estimate_full_year_proportional() -> None:
+    """年度推算：仅对当前年度按已过天数比例折算。"""
+    from datetime import date
+
+    import regwatch.web.views.overview as overview_view
+
+    today = date.today()
+    last = today.year - 1
+    estimates = overview_view._estimate_full_year([str(last), str(today.year)], [30, 10])
+    elapsed = (today - date(today.year, 1, 1)).days + 1
+    total_days = (date(today.year + 1, 1, 1) - date(today.year, 1, 1)).days
+    assert estimates == {str(today.year): round(10 * total_days / elapsed)}
+
+
+def test_trend_query_pins_2022_floor() -> None:
+    """趋势两图固定从 2022 年起展示，且不随会话日期筛选缩放。"""
+    from regwatch.web.views.overview import _TREND_FLOOR, _trend_query
+
+    base = CaseQuery()
+    pinned = _trend_query(base)
+    assert pinned.date_from == _TREND_FLOOR
+    assert pinned.date_to is None
+
+    filtered = CaseQuery(date_from="2026-01-01", date_to="2026-06-30")
+    assert _trend_query(filtered).date_from == _TREND_FLOOR
+    assert _trend_query(filtered).date_to is None

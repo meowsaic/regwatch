@@ -8,22 +8,9 @@
 
 ## 0. 代码结构（先看这里）
 
-```
-src/regwatch/
-├── domain/           领域层（纯数据，无 IO）
-│   ├── enums.py      Dataset / CaseStatus / CaseType / Category / SourceType / JobKind / JobStatus
-│   ├── models.py     CaseRecord / SummaryRecord / CaseRow / CaseQuery / TaskRecord / ModelProfile
-│   └── violations.py 违规分类体系与防控建议（语义稳定，改动影响历史报告可比性）
-├── settings.py       配置：单一库路径、模型条目、任务绑定、并发、旧键自动迁移
-├── logging_setup.py  统一日志与任务日志路由
-├── clock.py          时间工具
-├── db/               数据层：schema.sql / migrations / connection / jsonio / transfer / repositories
-├── llm/              OpenAI 兼容客户端 + 输出解析
-├── services/         用例层：summarize / analyze / reporting / org_type / jobs + container（组合根）
-├── sources/          采集层：http / common / htmlparse / docparse / progress + amac / csrc / amac_monthly / bureaus
-├── cli/              命令行（main.py + commands/*）
-└── web/              Streamlit（app.py / state.py / components / views/*）
-```
+`src/regwatch/` 五层：`domain`（领域层，纯数据无 IO）→ `db`（数据层）/ `llm` /
+`sources`（采集层）→ `services`（用例层，`container.py` 是唯一组合根）→ `cli` / `web`（交付层）。
+各模块职责、目录树与交付层入口见 `README.md`「目录结构」，**不要在这里重复维护**。
 
 **改代码的原则**：
 
@@ -44,7 +31,6 @@ src/regwatch/
 | 摘要提取 | `services.summarization.summarize(dataset, workers=..., on_progress=...)` |
 | 任务编排 | `services.jobs.submit(JobKind.SUMMARIZE, params)`；参数规格见 `services.JOB_SPECS` |
 | 模型客户端 | `services.llm.client(task="summarize")` |
-| 旧布局导入 | `regwatch db import --data-root data` 或 `scripts/migrate_to_sqlite.py` |
 | 回填违规类型关联表 | `regwatch db rebuild-violations`（分类体系升级后执行，不调用模型） |
 | 确定性数据质量修复 | `regwatch db repair [--dry-run]`（标题回填当事人/文书号、落款处分日、重建关联表；不调用模型） |
 
@@ -105,8 +91,9 @@ CSRC 专属 `case_type`(penalty/measure)、`bureau`、`document_number`、`punis
 
 - 每个类型带 `aliases`（模型常输出的子项 / 异名，如「适当性管理不到位」→ 违规募集、
   「操纵证券价格」→ 操纵市场）与 `datasets`（适用数据集）；
-  两套提取提示词的候选清单由 `violation_candidates(dataset)` 派生，**不再手工维护两份列表**，
-  回归测试 `TestPromptCoverage` 保证提示词与清单不脱节；
+  提取提示词里的候选清单是**手工维护的文本**（含给模型参考的子项举例，无法机械派生），
+  靠回归测试 `TestPromptCoverage` 保证与 `_VIOLATION_DEFS` 不脱节——
+  新增 / 改名 canonical 类型时必须同步改 `src/regwatch/prompts.py`；
 - AMAC / CSRC 同义措辞归一到同一 canonical：「未尽勤勉尽责义务」= CSRC「未勤勉尽责」、
   「未配合自律管理」= CSRC「未配合监管」；展示时用 `violation_label(name, dataset)` 还原文书措辞；
 - `case_violations` 落库存 canonical（`canonical_violations()` 归一，**丢弃未知碎片**，
@@ -143,6 +130,8 @@ CSRC 专属 `case_type`(penalty/measure)、`bureau`、`document_number`、`punis
    （会去掉 CSRC「采取出具警示函措施」等尾巴，并规范 `entity_type`）。
 4. **CSRC `case_type` 轻重有别**：`measure`（警示函、责令改正等）轻于 `penalty`（罚款、市场禁入）。
 5. **`status == SKIPPED` 的案例没有摘要**，理由记录在 `cases.status_note`。
+   来源有三种：采集期确定性排除（`标题明确非基金` / `内容判定非基金`，均不写正文）
+   与摘要阶段模型精判（如「与基金业务无关」）；前两种不需要也不应重新抓取。
 6. **CSRC `bureau="HQ"`** 表示证监会总部，其余为派出机构（见 `sources/bureaus.py`）。
 7. **抓取状态不再依赖索引文件**：是否已抓过 = 库中是否存在且已有正文，断点续传天然成立。
 8. **非法 `punishment_date`**（如 `2024-08-74`）会被 `db repair` 清空，不会猜真实日期。
@@ -159,7 +148,7 @@ CSRC 专属 `case_type`(penalty/measure)、`bureau`、`document_number`、`punis
 | 生成季度报告 | `regwatch report --dataset amac --start ... --end ... --llm` |
 | 补充/重跑摘要 | `regwatch summarize --dataset csrc --workers 5`（`--redo` 连同已完成案例一起重跑，用于提示词升级后回填） |
 | 补机构类型 | `regwatch org-type` / `regwatch org-type --interactive` |
-| 撰写新分析 | 参考 `data/*/reports/*.md` 结构与 `services/reporting.py` 的渲染函数 |
+| 撰写新分析 | 参考 `data/reports/*/*.md` 结构与 `services/reporting.py` 的渲染函数 |
 
 网页端（`regwatch web`）与 CLI 完全等价，演示或非技术用户优先用网页。
 
@@ -182,8 +171,8 @@ CSRC 专属 `case_type`(penalty/measure)、`bureau`、`document_number`、`punis
 ```powershell
 uv sync --extra web --extra dev                   # 推荐安装方式
 uv run python -m pytest                           # 全量测试（离线、内存库）
-uv run ruff check src tests                       # lint
-uv run ruff format --check src tests              # 格式
+uv run ruff check src tests deploy                # lint
+uv run ruff format --check src tests deploy       # 格式
 uv run mypy src/regwatch                          # 类型检查
 ```
 

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import html as html_lib
 import time
+from datetime import date
 
 import streamlit as st
 
-from regwatch.domain import JobKind, JobStatus
+from regwatch.domain import CaseQuery, Dataset, JobKind, JobStatus
 from regwatch.services import JOB_SPECS, JobError
+from regwatch.sources.amac import first_run_start
+from regwatch.sources.common import default_fetch_range
+from regwatch.sources.csrc.constants import DEFAULT_START_DATE
 from regwatch.web import access
 from regwatch.web.components import ui
 from regwatch.web.components.data import clear_data_cache, services
@@ -91,8 +95,44 @@ def _should_auto_refresh() -> bool:
         return False
 
 
+def _first_run_start(dataset: Dataset) -> date:
+    """空库首次抓取的兜底起点（与 :mod:`regwatch.sources` 的抓取入口一致）。"""
+    if dataset is Dataset.AMAC:
+        return first_run_start()
+    return DEFAULT_START_DATE
+
+
+def _render_coverage() -> None:
+    """各数据集「上次覆盖到的日期」与留空日期时的默认抓取区间。
+
+    覆盖日期取库内案例的最大 ``date``，便于在提交抓取任务前预估增量工作量。
+    """
+    analysis = services().analysis
+    cards: list[dict[str, object]] = []
+    for dataset in Dataset.all():
+        _, date_max = analysis.date_range(CaseQuery(datasets=(dataset,)))
+        start, end = default_fetch_range(
+            services().store, dataset, first_run_start=_first_run_start(dataset)
+        )
+        span = (end - start).days + 1
+        cards.append(
+            {
+                "label": f"{dataset.label} 上次覆盖至",
+                "value": date_max or "—",
+                "hint": (
+                    f"留空日期将从 {start.isoformat()} 抓到 {end.isoformat()}（{span} 天）"
+                    if date_max
+                    else "库中暂无案例：留空日期将全量扫描"
+                ),
+                "tone": "accent" if date_max else "muted",
+            }
+        )
+    ui.metric_cards(cards, columns=2)
+
+
 def _render_submit(manager: object) -> None:
-    ui.section_header("提交任务")
+    ui.section_header("提交任务", "抓取任务留空日期时按增量区间执行")
+    _render_coverage()
     with st.form("job-submit", border=True):
         col1, col2 = st.columns([1, 3])
         with col1:

@@ -59,18 +59,19 @@ def show() -> None:
 @app.command("test")
 def test() -> None:
     """测试全部模型条目的连通性。"""
-    services_singleton = store().settings
     from ...llm import LLMClientFactory
 
-    factory = LLMClientFactory(services_singleton.models, services_singleton.tasks)
-    results = []
-    ok = True
-    for profile in services_singleton.models:
-        success, message = factory.test_profile(profile)
-        ok = ok and success
-        results.append([profile.id, profile.display_name, "✓" if success else "✗", message])
-    print_table("连通性测试", ["ID", "名称", "结果", "说明"], results)
-    raise typer.Exit(0 if ok else 1)
+    current = store().settings
+    entries = LLMClientFactory.from_settings(current).test_all()
+    print_table(
+        "连通性测试",
+        ["ID", "名称", "结果", "说明"],
+        [
+            [profile.id, profile.display_name, "✓" if ok else "✗", message]
+            for profile, ok, message in entries
+        ],
+    )
+    raise typer.Exit(0 if all(ok for _profile, ok, _message in entries) else 1)
 
 
 @app.command("add-model")
@@ -85,29 +86,20 @@ def add_model(
         str, typer.Option("--token-param", help="max_tokens 参数名")
     ] = "max_tokens",
 ) -> None:
-    """新增或更新一条模型配置。"""
-    from ...domain import ModelProfile
-
-    config = store()
-    existing = config.settings.model(model_id)
-    profile = ModelProfile(
-        id=model_id,
-        label=label or (existing.label if existing else ""),
-        base_url=base_url,
-        api_key=api_key or (existing.api_key if existing else ""),
-        api_key_env=existing.api_key_env if existing else "",
-        model=model,
-        vision_model=vision_model,
-        token_param=token_param,
-    )
-    missing = profile.missing_fields()
-    if missing:
-        fail(f"缺少必填项：{'、'.join(missing)}")
+    """新增或更新一条模型配置（同名条目的未填写字段会被保留）。"""
     try:
-        config.upsert_model(profile)
+        profile = store().save_model_from_fields(
+            model_id=model_id,
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
+            label=label,
+            vision_model=vision_model,
+            token_param=token_param,
+        )
     except ConfigError as exc:
         fail(str(exc))
-    console.print(f"[green]✓ 已保存模型配置[/green] {model_id}")
+    console.print(f"[green]✓ 已保存模型配置[/green] {profile.id}")
 
 
 @app.command("remove-model")

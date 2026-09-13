@@ -559,3 +559,7 @@ class LLMClientFactory:
     def test_profile(self, profile: ModelProfile, timeout: float = 30.0) -> tuple[bool, str]:
         """直接测试一条配置的连通性（不进缓存）。"""
         return LLMClient(profile, timeout=timeout, max_retries=1).test_connection()
+
+    def test_all(self, timeout: float = 30.0) -> list[tuple[ModelProfile, bool, str]]:
+        """逐条测试全部模型配置，返回 ``[(条目, 是否成功, 说明), ...]``。"""
+        return [(item, *self.test_profile(item, timeout=timeout)) for item in self._models]

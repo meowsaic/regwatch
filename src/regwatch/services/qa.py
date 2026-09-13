@@ -18,8 +18,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..domain import CaseRow, QaIntent
-from ..llm import LLMClientFactory, LLMError, parse_json_response
+from ..domain import CaseRow, ModelProfile, QaIntent
+from ..llm import LLMClient, LLMClientFactory, LLMError, parse_json_response
 from ..logging_setup import get_logger
 from ..prompts import QA_ANSWER_SYSTEM, QA_INTENT_PROMPT, QA_REPORT_SYSTEM
 from .analyze import AnalysisService
@@ -169,6 +169,32 @@ class QaService:
             return self._llm.client(task="qa")
         raise LLMError("未配置可用的模型客户端")
 
+    @staticmethod
+    def byok_profile(*, base_url: str, model: str, api_key: str) -> ModelProfile:
+        """会话手填凭证 → 模型条目（不写 config、不进日志、不入工厂缓存）。"""
+        return ModelProfile(
+            id="byok",
+            label="会话手填模型",
+            base_url=(base_url or "").strip(),
+            model=(model or "").strip(),
+            api_key=(api_key or "").strip(),
+        )
+
+    def resolve_client(self, profile: ModelProfile | None = None) -> Any:
+        """解析问答用的模型客户端。
+
+        Args:
+            profile: 会话手填凭证（BYOK）对应的条目；留空表示使用全局配置，
+                按 ``qa`` 任务绑定解析。
+
+        Raises:
+            LLMError: 全局配置不可用时（调用方据此回退到 BYOK）。
+        """
+        if profile is not None:
+            # 手填凭证快速失败，避免长时间占用会话
+            return LLMClient(profile, max_retries=1)
+        return self._client()
+
     # ── 意图 ──
 
     def parse_intent(self, question: str, client: Any = None) -> tuple[QaIntent, bool, str]:
@@ -241,9 +267,8 @@ class QaService:
         overview: dict[str, Any]
         if structured and not intent.keywords:
             try:
-                overview = self._analysis.overview(
-                    intent.to_case_query(keyword="", limit=0).replace(statuses=())
-                )
+                # 聚合口径与检索一致（to_case_query 已排除 skipped），只放宽关键词
+                overview = self._analysis.overview(intent.to_case_query(keyword="", limit=0))
             except Exception:  # pragma: no cover
                 logger.warning("问答统计聚合失败", exc_info=True)
                 overview = {"total": unique_count}

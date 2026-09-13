@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from typing import Any
 
 import pandas as pd
@@ -15,10 +15,10 @@ __all__ = [
     "donut",
     "grouped_bar",
     "hbar",
-    "heat_by_month",
     "heat_from_periods",
     "style",
     "trend",
+    "yearly_bar",
 ]
 
 #: 品牌色板（深蓝 → 天蓝 → 琥珀，附少量区分度高的补充色）
@@ -206,6 +206,54 @@ def trend(
     return _with_title(fig, title, height, legend=bool(secondary))
 
 
+def yearly_bar(
+    periods: Sequence[str],
+    values: Sequence[int],
+    estimated: dict[str, int] | None = None,
+    title: str = "",
+    height: int = 340,
+) -> go.Figure:
+    """年度柱状图（机构与个人合并的整体口径）。
+
+    ``estimated`` 为 ``{年份: 推算全年总数}``；不完整年份会在实际值之上
+    堆叠一段半透明的「推算」柱，与实际值明确区分。
+    """
+    est = {str(key): int(value) for key, value in (estimated or {}).items()}
+    actual = [int(value) for value in values]
+    pairs = list(zip(periods, actual, strict=True))
+    projected = [max(0, est.get(str(period), 0) - base) for period, base in pairs]
+    full_year = [est.get(str(period), 0) or base for period, base in pairs]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=list(periods),
+            y=actual,
+            name="实际",
+            marker_color="#2563EB",
+            marker_line_width=0,
+            customdata=full_year,
+            hovertemplate="%{x} 年<br>实际 %{y} 例<extra></extra>",
+        )
+    )
+    has_projection = any(projected)
+    if has_projection:
+        fig.add_trace(
+            go.Bar(
+                x=list(periods),
+                y=projected,
+                name="推算（按当前进度折算全年）",
+                marker_color="rgba(37,99,235,.32)",
+                marker_line_width=0,
+                customdata=full_year,
+                hovertemplate="%{x} 年推算全年约 %{customdata} 例<extra></extra>",
+            )
+        )
+    fig.update_layout(barmode="stack" if has_projection else "relative")
+    fig.update_xaxes(type="category")
+    return _with_title(fig, title, height, legend=has_projection)
+
+
 def grouped_bar(
     categories: Sequence[str],
     series: dict[str, Sequence[int]],
@@ -267,34 +315,8 @@ def heat_from_periods(
             colorbar={"thickness": 10, "len": 0.6},
         )
     )
-    return _with_title(fig, title, height, legend=False)
-
-
-def heat_by_month(rows: Iterable[dict[str, Any]], title: str = "", height: int = 320) -> go.Figure:
-    """按年 × 月的热力图，展示处分密度的时序分布。"""
-    frame = pd.DataFrame([item for item in rows if item.get("date")])
-    if frame.empty or "date" not in frame.columns:
-        fig = go.Figure()
-        fig.add_annotation(text="暂无数据", showarrow=False, font={"size": 16, "color": "#94A3B8"})
-        return style(fig, height=height, legend=False)
-
-    frame["date"] = frame["date"].astype(str)
-    frame["year"] = frame["date"].str[:4]
-    frame["month"] = frame["date"].str[5:7]
-    counts = frame.groupby(["year", "month"]).size().reset_index(name="count")
-    matrix = counts.pivot(index="year", columns="month", values="count").fillna(0)
-    matrix = matrix.reindex(columns=[f"{m:02d}" for m in range(1, 13)])
-    fig = go.Figure(
-        go.Heatmap(
-            z=matrix.values,
-            x=[f"{int(m)}月" for m in matrix.columns],
-            y=list(matrix.index),
-            colorscale=[[0, "#F8FAFF"], [0.35, "#BFDBFE"], [0.7, "#2563EB"], [1, "#354e92"]],
-            hovertemplate="%{y}年 %{x}<br>%{z} 例<extra></extra>",
-            xgap=2,
-            ygap=2,
-        )
-    )
+    # 年份是分类（纯数字字符串会被 plotly 当数值轴，渲染出 2025.8 这类刻度）
+    fig.update_yaxes(type="category")
     return _with_title(fig, title, height, legend=False)
 
 

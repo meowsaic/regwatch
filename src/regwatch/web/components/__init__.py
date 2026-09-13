@@ -1,5 +1,1 @@
-"""网页端可复用组件。"""
-
-from __future__ import annotations
-
-__all__ = ["charts", "ui"]
+"""网页端可复用组件：:mod:`charts` 图表封装与 :mod:`ui` 页面元素。"""

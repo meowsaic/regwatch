@@ -6,6 +6,7 @@
 # 本项目自身的代码由入口脚本把 src/ 加入 sys.path 后直接可用，
 # 因此这里不需要（也不建议）写 `-e .`。
 # 版本区间与 pyproject.toml 保持一致：默认依赖 + web extra。
+# 改动 pyproject.toml 的依赖清单时必须同步本文件，否则云端与本地会漂移。
 
 # ── 网页端（pyproject 的 web extra） ──
 # 固定到本地验证过的版本：官方建议在云端 pin 住 streamlit，否则它可能被自动升级，
@@ -20,8 +21,6 @@ typer>=0.12
 rich>=13.0
 requests>=2.32
 beautifulsoup4>=4.12
-aiohttp>=3.9
 pypdf>=4.0
 olefile>=0.47
 python-docx>=1.1
-tqdm>=4.66

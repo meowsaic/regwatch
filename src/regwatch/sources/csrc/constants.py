@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime
 
 __all__ = [
     "CASE_TYPE_CN",
@@ -29,7 +29,7 @@ CASE_TYPE_CN: dict[str, str] = {
     CASE_TYPE_MEASURE: "监管措施",
 }
 
-#: 默认抓取起始日期（覆盖 2022 年以来）
+#: 默认抓取起始日期（覆盖 2022 年以来；仅空库首次抓取时使用）
 DEFAULT_START_DATE = datetime(2022, 1, 1).date()
 
 #: 站点根地址，用于拼接相对链接
@@ -48,8 +48,3 @@ MAX_CONSECUTIVE_PAGE_FAILURES = 3
 DEFAULT_CONCURRENCY = 8
 MIN_CONCURRENCY = 1
 MAX_CONCURRENCY = 32
-
-
-def resolve_period(start: date | None, end: date | None) -> tuple[date, date]:
-    """补全抓取区间：起始默认 2022-01-01，结束默认今天。"""
-    return start or DEFAULT_START_DATE, end or datetime.now().date()

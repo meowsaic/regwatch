@@ -131,7 +131,6 @@ class JobKind(_Labelled):
 
     FETCH_AMAC = "fetch_amac"
     FETCH_CSRC = "fetch_csrc"
-    FETCH_MONTHLY = "fetch_monthly"
     SUMMARIZE = "summarize"
     REPORT = "report"
     ORG_TYPE = "org_type"
@@ -141,7 +140,6 @@ class JobKind(_Labelled):
         return (
             cls.FETCH_AMAC,
             cls.FETCH_CSRC,
-            cls.FETCH_MONTHLY,
             cls.SUMMARIZE,
             cls.REPORT,
             cls.ORG_TYPE,
@@ -188,7 +186,6 @@ _LABELS: dict[str, str] = {
     # 任务类型
     "fetch_amac": "AMAC 案例抓取",
     "fetch_csrc": "CSRC 案例抓取",
-    "fetch_monthly": "AMAC 月度公告下载",
     "summarize": "结构化摘要提取",
     "report": "报告生成",
     "org_type": "机构登记类型回填",

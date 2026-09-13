@@ -118,24 +118,16 @@ def _save(
     vision_model: str,
     token_param: str,
 ) -> None:
-    config = store()
-    existing = config.settings.model(model_id)
-    profile = ModelProfile(
-        id=model_id.strip(),
-        label=label.strip() or (existing.label if existing else ""),
-        base_url=base_url.strip(),
-        api_key=api_key.strip() or (existing.api_key if existing else ""),
-        api_key_env=existing.api_key_env if existing else "",
-        model=model.strip(),
-        vision_model=vision_model.strip(),
-        token_param=token_param,
-    )
-    missing = profile.missing_fields()
-    if missing:
-        st.error(f"缺少必填项：{'、'.join(missing)}")
-        return
     try:
-        config.upsert_model(profile)
+        profile = store().save_model_from_fields(
+            model_id=model_id,
+            base_url=base_url,
+            model=model,
+            api_key=api_key,
+            label=label,
+            vision_model=vision_model,
+            token_param=token_param,
+        )
     except ConfigError as exc:
         st.error(str(exc))
         return

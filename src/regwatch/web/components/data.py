@@ -10,11 +10,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
+import pandas as pd
 import streamlit as st
 
-from regwatch.domain import CaseQuery, CaseStatus, Dataset
+from regwatch.domain import CaseQuery, CaseStatus, Dataset, violations_text
 from regwatch.services import Services, get_services
 from regwatch.settings import Settings, get_settings
 
@@ -26,6 +28,9 @@ __all__ = [
     "load_overview",
     "load_rows",
     "load_stats",
+    "load_totals",
+    "rows_column_config",
+    "rows_frame",
     "services",
     "settings",
     "status_options",
@@ -106,6 +111,12 @@ def load_overview(query_key: tuple) -> dict[str, Any]:
     return services().analysis.overview(_query_from_key(query_key))
 
 
+@st.cache_data(ttl=60, show_spinner=False)
+def load_totals() -> dict[str, int]:
+    """全库规模指标（不受筛选条件影响，供总览卡片展示被排除的量）。"""
+    return services().cases.totals()
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def violation_options() -> list[str]:
     """违规类型下拉选项（canonical 分类体系 + 库内实际出现的类型）。
@@ -149,6 +160,7 @@ def clear_data_cache() -> None:
     load_rows.clear()
     load_stats.clear()
     load_overview.clear()
+    load_totals.clear()
     violation_options.clear()
     bureau_options.clear()
 
@@ -206,3 +218,47 @@ def _parse_category(value: str):
 
     parsed = Category.parse(value)
     return parsed if parsed not in (None, Category.UNKNOWN) else None
+
+
+# ──────────────────────────── 案例表展示 ────────────────────────────
+
+#: 表格空值占位符
+_EMPTY = "—"
+
+
+def rows_column_config() -> dict[str, Any]:
+    """案例表的统一列配置（案例浏览与总览「最新案例」共用）。
+
+    每次调用返回新字典，避免同一配置对象被多次渲染复用。
+    """
+    return {
+        "日期": st.column_config.TextColumn("日期", width="small"),
+        "来源": st.column_config.TextColumn("来源", width="small"),
+        "标题": st.column_config.TextColumn("标题", width="large"),
+        "当事人": st.column_config.TextColumn("当事人", width="medium"),
+        "违规类型": st.column_config.TextColumn("违规类型", width="medium"),
+        "处罚": st.column_config.TextColumn("处罚", width="medium"),
+        "状态": st.column_config.TextColumn("状态", width="small"),
+    }
+
+
+def rows_frame(rows: Sequence[dict[str, Any]]) -> pd.DataFrame:
+    """把案例行转成统一展示表。
+
+    违规类型按数据集措辞还原，避免把模型输出的碎片直接展示给用户。
+    """
+    return pd.DataFrame(
+        [
+            {
+                "日期": row["date"] or _EMPTY,
+                "来源": row["dataset_label"] or _EMPTY,
+                "标题": row["title"] or _EMPTY,
+                "当事人": row["punished_entities"] or _EMPTY,
+                "违规类型": violations_text(row.get("violation_type"), row.get("dataset"))
+                or _EMPTY,
+                "处罚": row["punishment"] or _EMPTY,
+                "状态": row["status_label"] or _EMPTY,
+            }
+            for row in rows
+        ]
+    )

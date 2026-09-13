@@ -70,11 +70,11 @@ Secrets 里配了 `api_key_*`，等于把模型额度开放给陌生人；要公
 
 | 入口 | 挂载的页面 | 适用场景 |
 |------|------------|----------|
-| **`deploy/streamlit_public.py`** | 总览看板 / 案例浏览 / 统计分析（**写死的三个只读页**） | 公开看板：不需要口令，也不存在被误配打开写操作的可能 |
-| `deploy/streamlit_app.py` | 五个页面；云端默认只读，可配 `regwatch_admin_token` 解锁 | 自用 / 私有部署，需要在云端临时跑任务（见第 5 节） |
+| **`deploy/streamlit_public.py`** | 总览看板 / 案例浏览 / 统计分析 / 智能问答（**写死的四个只读页**） | 公开看板：不需要口令，也不存在被误配打开写操作的可能 |
+| `deploy/streamlit_app.py` | 六个页面；云端默认只读，可配 `regwatch_admin_token` 解锁 | 自用 / 私有部署，需要在云端临时跑任务（见第 5 节） |
 
 两个入口共用 `src/regwatch/web/shell.py` 与同一份依赖清单，改代码两边同时生效；
-本地 `uv run regwatch web` 完全不受影响（五个页面全开）。
+本地 `uv run regwatch web` 完全不受影响（六个页面全开）。
 
 ### 为什么入口必须放在 `deploy/` 目录
 
@@ -95,8 +95,8 @@ Secrets 里配了 `api_key_*`，等于把模型额度开放给陌生人；要公
 想本地复现云端行为：
 
 ```powershell
-streamlit run deploy/streamlit_public.py   # 公开入口：只有三个只读页面
-streamlit run deploy/streamlit_app.py      # 完整入口：五个页面（默认只读）
+streamlit run deploy/streamlit_public.py   # 公开入口：只有四个只读页面
+streamlit run deploy/streamlit_app.py      # 完整入口：六个页面（默认只读）
 ```
 
 ---
@@ -232,9 +232,9 @@ git add -f data/regwatch-slim.db
 
 | 环境 | 页面表现 |
 |------|----------|
-| 云端（默认） | 侧边栏只有 总览看板 / 案例浏览 / 统计分析，另有一行「🔒 云端只读」提示 |
-| 本地 `regwatch web` | 五个页面全开（只读默认关闭） |
-| 云端 + 口令解锁后 | 五页全开，仅当前浏览器会话有效 |
+| 云端（默认） | 侧边栏只有 总览看板 / 案例浏览 / 统计分析 / 智能问答，另有一行「🔒 云端只读」提示 |
+| 本地 `regwatch web` | 六个页面全开（只读默认关闭） |
+| 云端 + 口令解锁后 | 六页全开，仅当前浏览器会话有效 |
 
 页面内部仍然留了一道 `require_admin` 防护（即使被别的方式渲染到，也只显示只读视图），
 但正常情况下访客根本走不到那里。
@@ -266,7 +266,7 @@ regwatch_admin_token = "换成你自己的口令"
 | 现象 | 原因与处理 |
 |------|------------|
 | 页面能打开但图表／列表为空 | 空库，见第 4 节；也可点侧边栏「刷新数据缓存」 |
-| 侧边栏里看不到「任务中心」「模型与配置」 | 两种情况：① 用 `streamlit_public.py` 部署（本来就只挂三页）；② 用 `streamlit_app.py` 且处于只读模式（见第 5 节）。本地运行不会出现 |
+| 侧边栏里看不到「任务中心」「模型与配置」 | 两种情况：① 用 `streamlit_public.py` 部署（本来就只挂四页）；② 用 `streamlit_app.py` 且处于只读模式（见第 5 节）。本地运行不会出现 |
 | 顶部提示「不是有效的 SQLite 库」 | 仓库里的库文件是 Git LFS 指针、但云端没拉到实体：确认 `.gitattributes` 已提交、本地 `git lfs pull` 后再推一次 |
 | `ModuleNotFoundError: plotly` / `No module named 'streamlit'` | 依赖解析走到了仓库根目录的 `uv.lock`，检查 Main file path 是否填的 `deploy/streamlit_app.py` |
 | `ModuleNotFoundError: regwatch` | 入口文件被换成了 `src/regwatch/web/app.py`，请改回 `deploy/streamlit_app.py` |

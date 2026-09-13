@@ -3,7 +3,7 @@
 两个入口共用这一层，差别只在「挂哪几个页面」：
 
 - ``src/regwatch/web/app.py``：本地 ``regwatch web`` 用，按权限挂
-  :func:`regwatch.web.nav.visible_items`（五个页面）；
+  :func:`regwatch.web.nav.visible_items`（六个页面）；
 - ``deploy/streamlit_public.py``：云端公开部署用，固定只挂
   :func:`regwatch.web.nav.public_items`（总览/案例/统计/智能问答）。
 

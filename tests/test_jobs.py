@@ -137,6 +137,48 @@ class TestJobManager:
         with pytest.raises(JobError):
             services.jobs.submit("nope", {})
 
+    def test_cancel_finalizes_orphan_record(self, services: Services) -> None:
+        from regwatch.domain import TaskRecord
+
+        # 进程重启后遗留的「执行中」记录：无本进程线程，取消时直接落库收尾
+        services.store.tasks.save(
+            TaskRecord(
+                id="orphan",
+                kind="fetch_amac",
+                title="AMAC 案例抓取",
+                status=JobStatus.RUNNING,
+                total=15,
+                processed=1,
+            )
+        )
+        assert services.jobs.cancel("orphan") is True
+        record = services.jobs.get("orphan")
+        assert record is not None
+        assert record.status is JobStatus.CANCELLED
+
+    def test_cancel_returns_false_for_unknown_or_finished(self, services: Services) -> None:
+        assert services.jobs.cancel("missing") is False
+        job_id = services.jobs.submit(JobKind.SUMMARIZE, {})
+        services.jobs.wait(job_id, timeout=10)
+        assert services.jobs.cancel(job_id) is False
+
+    def test_init_recovers_stale_running_tasks(self, store: DataStore, services: Services) -> None:
+        from regwatch.domain import TaskRecord
+
+        for task_id, status in (
+            ("stale-run", JobStatus.RUNNING),
+            ("stale-pending", JobStatus.PENDING),
+        ):
+            store.tasks.save(TaskRecord(id=task_id, kind="fetch_amac", status=status))
+        JobManager(store.tasks, JobRunner(services))  # 重建管理器触发启动恢复
+
+        for task_id in ("stale-run", "stale-pending"):
+            record = store.tasks.get(task_id)
+            assert record is not None
+            assert record.status is JobStatus.FAILED
+            assert record.message == "进程重启，任务已中断"
+        assert not services.jobs.is_kind_running(JobKind.FETCH_AMAC)
+
 
 def test_job_manager_can_be_recreated(store: DataStore, services: Services) -> None:
     other = JobManager(store.tasks, JobRunner(services))

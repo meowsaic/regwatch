@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-import pandas as pd
 import streamlit as st
 
-from regwatch.domain import CaseStatus, CaseType, Dataset, violation_label, violations_text
+from regwatch.domain import CaseStatus, CaseType, Dataset, violation_label
 from regwatch.web.components import ui
 from regwatch.web.components.data import (
     bureau_options,
@@ -15,6 +14,8 @@ from regwatch.web.components.data import (
     clamp_page,
     load_case_text,
     load_rows,
+    rows_column_config,
+    rows_frame,
     violation_options,
 )
 from regwatch.web.state import active_filter_chips, build_query, get, reset_filters, set_value
@@ -24,7 +25,6 @@ __all__ = ["render"]
 _PAGE_SIZE = 20
 
 _PLACEHOLDER = "请选择…"
-_EMPTY = "—"
 
 
 def render() -> None:
@@ -45,7 +45,7 @@ def render() -> None:
     start = (page - 1) * _PAGE_SIZE
     page_rows = all_rows[start : start + _PAGE_SIZE]
 
-    frame = _rows_frame(all_rows)
+    frame = rows_frame(all_rows)
     page_frame = frame.iloc[start : start + _PAGE_SIZE].reset_index(drop=True)
 
     toolbar_left, toolbar_right = st.columns([3, 2])
@@ -65,15 +65,7 @@ def render() -> None:
         hide_index=True,
         on_select="rerun",
         selection_mode="single-row",
-        column_config={
-            "日期": st.column_config.TextColumn("日期", width="small"),
-            "来源": st.column_config.TextColumn("来源", width="small"),
-            "标题": st.column_config.TextColumn("标题", width="large"),
-            "当事人": st.column_config.TextColumn("当事人", width="medium"),
-            "违规类型": st.column_config.TextColumn("违规类型", width="medium"),
-            "处罚": st.column_config.TextColumn("处罚", width="medium"),
-            "状态": st.column_config.TextColumn("状态", width="small"),
-        },
+        column_config=rows_column_config(),
     )
     _render_pager(page, page_count)
 
@@ -84,34 +76,12 @@ def render() -> None:
     _render_detail(page_rows[chosen])
 
 
-def _violation_text(row: dict) -> str:
-    """案例行的违规类型展示串（归一后按数据集措辞，去掉模型输出的碎片）。"""
-    return violations_text(row.get("violation_type"), row.get("dataset")) or _EMPTY
-
-
 def _violation_format(value: str) -> str:
     """违规类型下拉的展示文案：限定单数据集筛选时用该数据集的措辞。"""
     datasets = get("datasets") or []
     if len(datasets) == 1:
         return violation_label(value, datasets[0])
     return value
-
-
-def _rows_frame(rows: list[dict]) -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {
-                "日期": row["date"] or _EMPTY,
-                "来源": row["dataset_label"] or _EMPTY,
-                "标题": row["title"] or _EMPTY,
-                "当事人": row["punished_entities"] or _EMPTY,
-                "违规类型": _violation_text(row),
-                "处罚": row["punishment"] or _EMPTY,
-                "状态": row["status_label"] or _EMPTY,
-            }
-            for row in rows
-        ]
-    )
 
 
 def _multiselect(label: str, **kwargs: Any) -> list:

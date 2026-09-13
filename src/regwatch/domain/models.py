@@ -1,7 +1,7 @@
 """领域模型。
 
 纯数据结构，**不含任何 IO**：不读文件、不连数据库、不发网络请求。
-序列化细节由 :mod:`regwatch.db.jsonio` 与仓储层负责，领域层只负责表达业务概念。
+序列化细节由仓储层负责，领域层只负责表达业务概念。
 
 设计约定：
 
@@ -538,10 +538,16 @@ class QaIntent:
         )
 
     def to_case_query(self, *, keyword: str = "", limit: int | None = None) -> CaseQuery:
-        """映射为检索条件；``keyword`` 覆盖关键词（多关键词由服务逐条检索合并）。"""
+        """映射为检索条件；``keyword`` 覆盖关键词（多关键词由服务逐条检索合并）。
+
+        状态默认排除「判定非基金相关」（skipped）——这些是采集期确定性排除
+        或模型精判为无关的占位记录，没有摘要，检出只会挤占证据名额。
+        """
         return CaseQuery(
             datasets=self.datasets,
-            statuses=(CaseStatus.DONE,) if self.violations else (),
+            statuses=(CaseStatus.DONE,)
+            if self.violations
+            else (CaseStatus.DONE, CaseStatus.PENDING),
             violations=self.violations,
             bureaus=self.bureaus,
             date_from=self.date_from,

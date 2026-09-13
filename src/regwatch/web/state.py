@@ -56,10 +56,13 @@ FILTER_WIDGET_KEYS: tuple[str, ...] = (
     "stats-date-to",
 )
 
-#: 各键的默认值
+#: 各键的默认值。
+#: ``statuses`` 默认排除「判定非基金相关」（skipped）——这些案例是采集期
+#: 确定性排除或模型精判为与基金无关的占位记录，计入只会稀释统计口径；
+#: 需要查看时在筛选器里手动勾选「已跳过」即可。
 DEFAULTS: dict[str, Any] = {
     "datasets": [],
-    "statuses": [],
+    "statuses": ["done", "pending"],
     "case_types": [],
     "bureaus": [],
     "violations": [],
@@ -148,7 +151,8 @@ def active_filter_chips() -> list[str]:
             labels.append(parsed.label if parsed else str(value))
         chips.append("案例类型：" + "、".join(labels))
     statuses = get("statuses") or []
-    if statuses:
+    if statuses and sorted(statuses) != sorted(DEFAULTS["statuses"]):
+        # 与默认口径一致时不提示，避免每页都挂着一条恒定的状态 chip
         labels = []
         for value in statuses:
             parsed = CaseStatus.parse(value)

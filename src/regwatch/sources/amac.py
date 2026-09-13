@@ -18,14 +18,20 @@ import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any
 from urllib.parse import urljoin
 
 from ..clock import now_iso
 from ..domain import CaseRecord, Category, Dataset
 from ..logging_setup import get_logger
-from .common import extract_amac_case_id, parse_date_from_text
+from .common import (
+    Progress,
+    default_fetch_range,
+    extract_amac_case_id,
+    parse_date_from_text,
+    progress,
+)
 from .htmlparse import (
     as_tag,
     extract_main_text,
@@ -34,7 +40,6 @@ from .htmlparse import (
     parse_html,
 )
 from .http import close_shared_session, shared_session
-from .progress import Progress, progress
 
 logger = get_logger("sources.amac")
 
@@ -45,7 +50,7 @@ __all__ = [
     "fetch",
     "fetch_pending",
     "fetch_single",
-    "get_last_quarter_range",
+    "first_run_start",
 ]
 
 CATEGORIES: dict[str, dict[str, str]] = {
@@ -68,22 +73,13 @@ PDF_OCR_PROMPT = (
 )
 
 
-def get_last_quarter_range() -> tuple[date, date]:
-    """返回上一个季度的起止日期。"""
-    today = datetime.now()
-    year, quarter = today.year, (today.month - 1) // 3 + 1
-    if quarter == 1:
-        last_year, last_quarter = year - 1, 4
-    else:
-        last_year, last_quarter = year, quarter - 1
-    start_month = (last_quarter - 1) * 3 + 1
-    start = datetime(last_year, start_month, 1).date()
-    if last_quarter == 4:
-        end = datetime(last_year + 1, 1, 1).date() - timedelta(days=1)
-    else:
-        end = datetime(last_year, start_month + 3, 1).date() - timedelta(days=1)
-    logger.info("目标季度: %d年Q%d (%s ~ %s)", last_year, last_quarter, start, end)
-    return start, end
+def first_run_start(today: date | None = None) -> date:
+    """空库首次抓取的默认起点：上一季度的第一天。"""
+    current = today or datetime.now().date()
+    quarter_month = ((current.month - 1) // 3) * 3 + 1
+    if quarter_month == 1:
+        return date(current.year - 1, 10, 1)
+    return date(current.year, quarter_month - 3, 1)
 
 
 # ──────────────────────────── PDF 版式识别 ────────────────────────────
@@ -415,8 +411,9 @@ def fetch(
     """抓取指定日期范围内的 AMAC 纪律处分案例。
 
     Args:
-        start_date: 起始日期（含）；与 ``end_date`` 任一为空时回落到上一季度。
-        end_date: 结束日期（含）。
+        start_date: 起始日期（含）；留空时回落到「上次覆盖日期 - 回看天数」
+            （见 :func:`~regwatch.sources.common.default_fetch_range`）。
+        end_date: 结束日期（含）；留空时回落到今天。
         categories: ``Institution`` / ``Personnel``；默认全部。
         store: 数据仓储门面。
         llm: 模型客户端工厂（PDF 版式识别用）。
@@ -430,7 +427,9 @@ def fetch(
         store, llm, org_type = services.store, services.llm, services.org_type
 
     if start_date is None or end_date is None:
-        default_start, default_end = get_last_quarter_range()
+        default_start, default_end = default_fetch_range(
+            store, Dataset.AMAC, first_run_start=first_run_start()
+        )
         start_date = start_date or default_start
         end_date = end_date or default_end
 

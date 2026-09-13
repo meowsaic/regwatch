@@ -11,10 +11,9 @@ from bs4 import BeautifulSoup, Tag
 
 from ...logging_setup import get_logger
 from ..bureaus import Bureau, discover_penalty_url
-from ..common import parse_date_from_text
+from ..common import parse_date_from_text, progress
 from ..htmlparse import as_tag, attr_str
 from ..http import shared_session
-from ..progress import progress
 from .constants import (
     DELAY_BETWEEN_PAGES,
     LIST_PAGE_RETRIES,
@@ -78,6 +77,24 @@ def _is_non_detail_url(url: str) -> bool:
 def _is_case_link(link_tag: Tag, url: str) -> bool:
     """列表条目是否是可抓取的案例详情页链接。"""
     return bool(url) and not _is_page_chrome(link_tag) and not _is_non_detail_url(url)
+
+
+# ──────────────────────────── 软 404 防护 ────────────────────────────
+
+#: 官网首页 <title>。越界翻页 / 非法页码会返回 **HTTP 200 的首页**（软 404），
+#: 而首页能被列表解析器解出日期新鲜的垃圾条目（如"行政许可公示表"），
+#: 若不识别会导致：垃圾入库 + 既不触发"无条目停止"也不触发"日期停止"的死循环。
+_HOMEPAGE_TITLE = "中国证券监督管理委员会"
+
+#: 单来源列表页硬性翻页上限。真实列表远小于此（最大的局也就几十页），
+#: 仅作为软 404 识别失效时的最后防线，防止无限翻页。
+_MAX_LIST_PAGES = 500
+
+
+def _is_homepage_page(soup: BeautifulSoup) -> bool:
+    """响应是否为软 404 返回的官网首页。"""
+    title = soup.find("title")
+    return title is not None and title.get_text(strip=True) == _HOMEPAGE_TITLE
 
 
 # ──────────────────────────── 列表页爬取 ────────────────────────────
@@ -219,11 +236,17 @@ def collect_measure_links(
 
     session = shared_session()
     results: list[dict] = []
+    seen_urls: set[str] = set()
     page_index = 1
     should_stop = False
     consecutive_failures = 0
 
     while not should_stop:
+        if page_index > _MAX_LIST_PAGES:
+            logger.error(
+                f"  [{bureau.name_en}] 翻页达 {_MAX_LIST_PAGES} 页上限，强制停止（疑似软404死循环）"
+            )
+            break
         url = base_url if page_index == 1 else page_url_tpl.replace("{N}", str(page_index))
         progress(f"  [{bureau.name_en}/measure] 请求第 {page_index} 页...")
 
@@ -241,6 +264,23 @@ def collect_measure_links(
                     resp.encoding = resp.apparent_encoding or "utf-8"
 
                 soup = BeautifulSoup(resp.text, "html.parser")
+
+                # 软404：越界/非法页码返回 HTTP 200 的官网首页。
+                # 重试数耗尽仍为首页时按"翻页结束"处理，绝不把首页条目当作案例。
+                if _is_homepage_page(soup):
+                    if retry < LIST_PAGE_RETRIES - 1:
+                        wait = 3 * (retry + 1)
+                        logger.warning(
+                            f"  [{bureau.name_en}] 第 {page_index} 页返回官网首页"
+                            f"（越界或被限流），{wait}秒后重试..."
+                        )
+                        time.sleep(wait)
+                        continue
+                    progress(f"  [{bureau.name_en}] 第 {page_index} 页连续返回首页，翻页结束")
+                    should_stop = True
+                    page_ok = True
+                    break
+
                 items = _parse_list_items_from_soup(soup, url)
 
                 if not items:
@@ -248,6 +288,15 @@ def collect_measure_links(
                     should_stop = True
                     page_ok = True
                     break
+
+                # 整页条目全部重复：软404首页反复注入同一批垃圾条目的特征
+                page_urls = {str(item["link_url"]) for item in items}
+                if page_urls <= seen_urls:
+                    progress(f"  [{bureau.name_en}] 第 {page_index} 页条目全部重复，判定翻页结束")
+                    should_stop = True
+                    page_ok = True
+                    break
+                seen_urls |= page_urls
 
                 keep, stop = _filter_links_by_date(items, start_date, end_date)
                 results.extend(keep)
@@ -338,7 +387,8 @@ def _try_searchlist_api(
         channelid: 显式传入的 channelid。优先于 bureau.penalty_channelid 使用。
 
     Returns:
-        案例列表 [{link_url, title, date}, ...]；若 API 不可用返回 None。
+        案例列表 ``[{link_url, title, date}, ...]``（可能为空，表示 API 正常但范围内无案例）；
+        API 不可用（缺 channelid / 首页请求失败）时返回 ``None``，由调用方决定回退策略。
     """
     # 优先使用显式传入的参数，其次从 bureau 配置读取，最后从 penalty_url 提取
     eff_url = penalty_url or bureau.penalty_url
@@ -368,11 +418,13 @@ def _try_searchlist_api(
             )
             if resp.status_code != 200:
                 logger.warning(f"  [searchList] 第 {page} 页 status={resp.status_code}")
-                break
+                # 第 1 页就失败说明 API 不可用（返回 None 走 HTML 兜底）；
+                # 后续页失败视为翻页提前结束，保留已取到的结果。
+                return None if page == 1 else results
             ctype = resp.headers.get("Content-Type", "")
             if "json" not in ctype.lower():
                 logger.warning(f"  [searchList] 第 {page} 页非 JSON 响应: {ctype}")
-                break
+                return None if page == 1 else results
 
             data = resp.json()
             ch_name = data.get("channelName", "")
@@ -432,9 +484,9 @@ def _try_searchlist_api(
             time.sleep(DELAY_BETWEEN_PAGES)
         except Exception as e:
             logger.warning(f"  [searchList] 第 {page} 页异常: {e}")
-            break
+            return None if page == 1 else results
 
-    return results if results else None
+    return results
 
 
 def _try_penalty_api(
@@ -544,8 +596,10 @@ def collect_penalty_links(
 ) -> list[dict]:
     """爬取行政处罚列表页。
 
-    优先尝试 HTML 解析；若 HTML 无列表数据（AJAX 动态加载），探测后端 API；
-    若以上均失败，记录日志并跳过（不使用浏览器自动化，保持简单）。
+    **searchList API 优先**：37 个来源的 channelid 均已离线固化
+    （见 :data:`regwatch.sources.bureaus._PENALTY_CHANNELS`），该 API 是官网
+    render.js 同款数据源，支持全深度翻页。HTML 栏目页用现有解析器解析不出
+    条目（实测），仅在 API 不可用（返回 ``None``）时作为兜底，且带软 404 防护。
     """
     # 必要时通过 discover_penalty_url 自动发现
     penalty_url = bureau.penalty_url
@@ -561,17 +615,44 @@ def collect_penalty_links(
     # 提取 channelid，供后续 searchList API 使用
     discovered_channelid = bureau.penalty_channelid or _extract_channelid_from_url(penalty_url)
 
+    # 1) searchList API 优先。返回 [] 表示 API 正常但范围内无案例（确定性结果，
+    #    不再回退 HTML）；返回 None 表示 API 不可用，走 HTML 兜底。
+    if discovered_channelid:
+        api_items = _try_searchlist_api(
+            bureau,
+            start_date,
+            end_date,
+            penalty_url=penalty_url,
+            channelid=discovered_channelid,
+        )
+        if api_items is not None:
+            if api_items:
+                progress(
+                    f"  [{bureau.name_en}/penalty] [searchList API] 共获取 {len(api_items)} 个案例"
+                )
+            else:
+                progress(f"  [{bureau.name_en}/penalty] searchList API 正常返回，日期范围内无案例")
+            return api_items
+        progress(f"  [{bureau.name_en}/penalty] searchList API 不可用，回退 HTML 翻页...")
+
+    # 2) HTML 翻页兜底（带软 404 防护 + 页数上限）
     # 行政处罚分页 URL 模板：zfxxgk_zdgk_{N}.shtml（与监管措施同理）
     page_url_tpl = re.sub(r"zfxxgk_zdgk\.shtml", "zfxxgk_zdgk_{N}.shtml", penalty_url)
 
     session = shared_session()
     results: list[dict] = []
+    seen_urls: set[str] = set()
     page_index = 1
     should_stop = False
     consecutive_failures = 0
     html_tried = False
 
     while not should_stop:
+        if page_index > _MAX_LIST_PAGES:
+            logger.error(
+                f"  [{bureau.name_en}] 翻页达 {_MAX_LIST_PAGES} 页上限，强制停止（疑似软404死循环）"
+            )
+            break
         url = penalty_url if page_index == 1 else page_url_tpl.replace("{N}", str(page_index))
         progress(f"  [{bureau.name_en}/penalty] 请求第 {page_index} 页...")
 
@@ -589,59 +670,81 @@ def collect_penalty_links(
                     resp.encoding = resp.apparent_encoding or "utf-8"
 
                 soup = BeautifulSoup(resp.text, "html.parser")
-                items = _parse_list_items_from_soup(soup, url)
-                html_tried = True
 
-                if items:
-                    keep, stop = _filter_links_by_date(items, start_date, end_date)
-                    results.extend(keep)
-                    progress(
-                        f"  [{bureau.name_en}] 翻页: 第 {page_index} 页, 累计 {len(results)} 个案例"
-                    )
-                    if stop:
-                        should_stop = True
+                # 软404：越界/非法页码返回 HTTP 200 的官网首页，绝不把首页条目当作案例
+                if _is_homepage_page(soup):
+                    if retry < LIST_PAGE_RETRIES - 1:
+                        wait = 3 * (retry + 1)
+                        logger.warning(
+                            f"  [{bureau.name_en}] 第 {page_index} 页返回官网首页"
+                            f"（越界或被限流），{wait}秒后重试..."
+                        )
+                        time.sleep(wait)
+                        continue
+                    progress(f"  [{bureau.name_en}] 第 {page_index} 页连续返回首页，翻页结束")
+                    should_stop = True
                     page_ok = True
                     break
 
-                # HTML 无列表项：可能是 AJAX 加载，仅在第一页探测 API
-                if page_index == 1:
-                    progress(f"  [{bureau.name_en}] HTML 无列表项，尝试 searchList API...")
-                    # 优先使用 searchList API（CSRC 官网 render.js 调用的接口）
-                    api_items = _try_searchlist_api(
-                        bureau,
-                        start_date,
-                        end_date,
-                        penalty_url=penalty_url,
-                        channelid=discovered_channelid,
-                    )
-                    if not api_items:
-                        # 退化到旧的 list.do 探测
-                        progress(
-                            f"  [{bureau.name_en}] searchList API 无结果，尝试 list.do 探测..."
-                        )
-                        api_items = _try_penalty_api(
+                items = _parse_list_items_from_soup(soup, url)
+                html_tried = True
+
+                if not items:
+                    # HTML 无列表项：可能是 AJAX 加载，仅在第一页探测 API
+                    if page_index == 1:
+                        progress(f"  [{bureau.name_en}] HTML 无列表项，尝试 searchList API...")
+                        api_items = _try_searchlist_api(
                             bureau,
                             start_date,
                             end_date,
                             penalty_url=penalty_url,
+                            channelid=discovered_channelid,
                         )
-                    if api_items:
-                        results.extend(api_items)
-                        progress(f"  [{bureau.name_en}] [API] 共获取 {len(api_items)} 个案例")
-                        page_ok = True
-                        should_stop = True  # API 通常一次性返回，不再翻页
-                        break
-                    else:
-                        logger.warning("  行政处罚 API 探测失败，停止该来源抓取")
+                        if not api_items:
+                            # 退化到旧的 list.do 探测
+                            progress(
+                                f"  [{bureau.name_en}] searchList API 无结果，尝试 list.do 探测..."
+                            )
+                            api_items = _try_penalty_api(
+                                bureau,
+                                start_date,
+                                end_date,
+                                penalty_url=penalty_url,
+                            )
+                        if api_items:
+                            results.extend(api_items)
+                            progress(f"  [{bureau.name_en}] [API] 共获取 {len(api_items)} 个案例")
+                            page_ok = True
+                            should_stop = True  # API 通常一次性返回，不再翻页
+                            break
+                        logger.warning("  行政处罚列表页与 API 均未获取到案例，停止该来源抓取")
                         should_stop = True
                         page_ok = True
                         break
-                else:
                     # 后续页面无列表项视为结束
                     progress(f"  [{bureau.name_en}] 第 {page_index} 页无列表项，翻页结束")
                     should_stop = True
                     page_ok = True
                     break
+
+                # 整页条目全部重复：软404首页反复注入同一批垃圾条目的特征
+                page_urls = {str(item["link_url"]) for item in items}
+                if page_urls <= seen_urls:
+                    progress(f"  [{bureau.name_en}] 第 {page_index} 页条目全部重复，判定翻页结束")
+                    should_stop = True
+                    page_ok = True
+                    break
+                seen_urls |= page_urls
+
+                keep, stop = _filter_links_by_date(items, start_date, end_date)
+                results.extend(keep)
+                progress(
+                    f"  [{bureau.name_en}] 翻页: 第 {page_index} 页, 累计 {len(results)} 个案例"
+                )
+                if stop:
+                    should_stop = True
+                page_ok = True
+                break
 
             except Exception as e:
                 if retry < LIST_PAGE_RETRIES - 1:

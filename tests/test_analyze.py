@@ -139,6 +139,19 @@ def test_overview_uses_sql_aggregation(
     assert overview["dataset"] == {"amac": 1, "csrc": 1}
     assert overview["date_min"] == "2026-01-05"
     assert ("违规募集", 1) in overview["violations"]
+    # 年度趋势与月度趋势同源（SQL 聚合）
+    assert overview["time_trend_yearly"] == [
+        {"period": "2026", "count": 2, "institutions": 1, "personnel": 1}
+    ]
+
+
+def test_overview_bureau_drops_empty_bucket(
+    services: Services, store: DataStore, amac_case: CaseRecord, csrc_case: CaseRecord
+) -> None:
+    """bureau 只有 CSRC 有值；AMAC 的空 bureau 不得伪装成「未知」霸榜。"""
+    _seed(store, amac_case, csrc_case)
+    overview = services.analysis.overview(CaseQuery())
+    assert overview["bureau"] == [("Beijing", 1)]
 
 
 def test_rows_are_sorted_by_date_desc(

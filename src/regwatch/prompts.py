@@ -6,9 +6,10 @@
 - :data:`CSRC_EXTRACT_PROMPT` —— 证监会处罚 / 措施结构化提取
 - :data:`COMPLIANCE_ADVICE_PROMPT` —— 季度报告「合规建议」章节撰写
 
-违规类型**单一维护在** :mod:`regwatch.domain.violations`：提取提示词的候选清单
-通过 :func:`~regwatch.domain.violations.violation_candidates` 按数据集派生，
-不再是两套手工维护的列表；本模块只负责把候选名嵌入提示词文本。
+违规类型**单一维护在** :mod:`regwatch.domain.violations`：提取提示词里的候选清单
+是手工维护的文本（分类体系里还带有供模型参考的子项 / 异名举例，无法机械派生），
+由 ``tests/test_domain.py::TestPromptCoverage`` 回归保证与分类体系不脱节；
+新增或改名 canonical 类型时必须同步修改本模块的提示词文本。
 
 **分类体系一经改动会影响历史报告可比性**，新增类型时请追加到
 ``domain/violations.py`` 的 ``_VIOLATION_DEFS`` 末尾并同步 ``AGENTS.md``。
@@ -16,29 +17,16 @@
 
 from __future__ import annotations
 
-from .domain.violations import (
-    PUNISHMENT_CATEGORIES,
-    VIOLATION_ADVICE,
-    VIOLATION_TYPES,
-    VIOLATION_TYPES_AMAC,
-    VIOLATION_TYPES_CSRC,
-)
+from .domain.violations import VIOLATION_TYPES
 
 __all__ = [
     "AMAC_EXTRACT_PROMPT",
     "COMPLIANCE_ADVICE_PROMPT",
     "CSRC_EXTRACT_PROMPT",
-    "PUNISHMENT_CATEGORIES",
     "QA_ANSWER_SYSTEM",
     "QA_INTENT_PROMPT",
     "QA_REPORT_SYSTEM",
-    "VIOLATION_ADVICE",
-    "VIOLATION_TYPES",
-    "VIOLATION_TYPES_AMAC",
-    "VIOLATION_TYPES_CSRC",
 ]
-
-# 分类体系与防控建议统一维护在 :mod:`regwatch.domain.violations`，此处仅为向后兼容再导出。
 
 # ──────────────────────────── 结构化提取提示词 ────────────────────────────
 
@@ -108,6 +96,7 @@ CSRC_EXTRACT_PROMPT = """你是一名专业的证监会监管法规分析师。�
 
 需要提取的字段：
 - entity_type: 受处罚主体类型，枚举值 "机构" / "个人" / "机构+个人"
+- punished_entity: 受处罚机构或人员的全称（从文首"当事人"段或处罚对象处提取，多人/多机构用顿号分隔）
 - violation_type: 违规类型，从以下 18 类中选择最匹配的（如有多个违规类型，用顿号分隔）：
 
   · 信息披露违规：虚假记载、重大遗漏、未按时披露定期报告、未披露重大事项
@@ -137,6 +126,7 @@ CSRC_EXTRACT_PROMPT = """你是一名专业的证监会监管法规分析师。�
 5. "内控缺失"仅用于内控制度本身不健全或形同虚设的情况，与"人员与场所违规"区分
 
 - punishment: 处罚/监管措施具体内容，如"警告并处以罚款150万元"、"责令改正"、"出具警示函"
+- punishment_date: 处罚/措施日期（决定书落款日期），格式YYYY-MM-DD，如无法确定则填空字符串
 - involved_fund: 涉及基金/产品名称，多个用顿号分隔，无则填空字符串
 - violation_summary: 违规事实摘要，200字左右的客观概括
 - legal_basis: 处罚依据的法规条款，如《证券法》第一百九十七条、《私募投资基金监督管理暂行办法》第三十三条，多条用顿号分隔

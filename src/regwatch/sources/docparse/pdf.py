@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 
 from ...logging_setup import get_logger
+from ..common import progress
 from ..http import shared_session
-from ..progress import progress
 
 logger = get_logger("sources.docparse")
 

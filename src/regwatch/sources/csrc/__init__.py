@@ -4,8 +4,7 @@
 
 - :mod:`regwatch.sources.csrc.models`     数据模型与纯文本解析
 - :mod:`regwatch.sources.csrc.discovery`  列表页 / 搜索接口的链接发现
-- :mod:`regwatch.sources.csrc.htmlparse`  详情页 HTML 正文与附件链接提取
-- :mod:`regwatch.sources.csrc.fetcher`    单案例抓取（详情页 → 正文 → CaseData）
+- :mod:`regwatch.sources.csrc.fetcher`    单案例抓取（详情页解析 → 正文 → CaseData）
 - :mod:`regwatch.sources.csrc.runner`     多来源并发抓取编排与对外 API
 """
 
@@ -28,7 +27,6 @@ from .runner import (
     DEFAULT_CONCURRENCY,
     FetchResult,
     available_bureaus,
-    default_start_date,
     fetch,
     fetch_pending,
     fetch_single,
@@ -44,7 +42,6 @@ __all__ = [
     "FetchResult",
     "available_bureaus",
     "build_case_id",
-    "default_start_date",
     "extract_document_number",
     "extract_punished_entities",
     "fetch",

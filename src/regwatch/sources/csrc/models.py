@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date as _date
 
 from ...domain import CaseRecord, CaseType, Dataset
 from ..common import extract_csrc_case_id
@@ -78,10 +79,16 @@ class CaseData:
         )
 
 
-def build_case_id(date_str: str, url: str) -> str:
-    """生成案例 ID：日期前缀 + URL 内容编号，如 ``20260213_c7615688``。"""
+def build_case_id(date_str: str | _date, url: str) -> str:
+    """生成案例 ID：日期前缀 + URL 内容编号，如 ``20260213_c7615688``。
+
+    ``date_str`` 同时接受 ``datetime.date``（列表页解析结果）与字符串，
+    避免调用方遗漏转换导致 ``TypeError``。
+    """
     content_id = extract_csrc_case_id(url)
-    date_compact = re.sub(r"\D", "", date_str or "")[:8]
+    if isinstance(date_str, _date):
+        date_str = date_str.isoformat()
+    date_compact = re.sub(r"\D", "", str(date_str or ""))[:8]
     return f"{date_compact}_{content_id}" if date_compact else content_id
 
 
@@ -308,6 +315,10 @@ NON_CASE_TITLE_KEYWORDS: tuple[str, ...] = (
     "圆桌会",
     "表彰",
     "党课",
+    # 行政许可公示/通告类（如"证券基金机构行政许可申请受理及审核情况公示表"），
+    # 标题含"基金"会绕过正文确认直接入库，必须在发现阶段排除
+    "公示表",
+    "行政许可",
 )
 
 

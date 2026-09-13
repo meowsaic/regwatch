@@ -15,13 +15,13 @@ from pathlib import Path
 from typing import Any
 
 from ..db import DataStore
+from ..llm import LLMClientFactory
 from ..logging_setup import configure_logging
 from ..settings import Settings, get_settings
 from ..sources.http import HttpClient, RequestsHttpClient
 from .analyze import AnalysisService
 from .data_repair import DataRepairService
 from .jobs import JobManager, JobRunner
-from .llm_bridge import build_llm_factory
 from .org_type import OrgTypeService
 from .qa import QaService
 from .reporting import ReportService
@@ -88,7 +88,7 @@ def build_services(
     store = DataStore.open(database or resolved.database)
     client = http or RequestsHttpClient()
 
-    llm = build_llm_factory(resolved)
+    llm = LLMClientFactory.from_settings(resolved)
 
     def touch() -> None:
         """数据变更后自增版本号（丢弃返回值以匹配 ``Callable[[], None]``）。"""
