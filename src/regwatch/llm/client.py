@@ -9,7 +9,11 @@
    降级次数有硬上限，不会无限循环。
 3. **推理内容兜底**：部分模型把答案放在 ``reasoning_content``，
    :meth:`ChatResult.best_text` 自动回退。
-4. **密钥不外泄**：日志与错误信息中的密钥一律脱敏。
+4. **网关错误体识别**：网关在 200 之后才失败时，响应体只含 ``error``、没有
+   ``choices``（见 OpenRouter 文档）；此时把 ``code`` / ``error_type`` 带进异常
+   文本，并据 ``code`` 判定是否属于瞬时错误（限流、provider 故障可重试，
+   内容过滤 / 拒绝不重试）。
+5. **密钥不外泄**：日志与错误信息中的密钥一律脱敏。
 """
 
 from __future__ import annotations
@@ -96,6 +100,61 @@ class ChatClient(Protocol):
 
 
 # ──────────────────────────── 结果对象 ────────────────────────────
+
+
+def _as_mapping(value: Any) -> dict[str, Any]:
+    """把 dict 与 pydantic 对象统一成 dict，取不到内容时返回空 dict。"""
+    if isinstance(value, dict):
+        return value
+    dumped = getattr(value, "model_dump", None)
+    if callable(dumped):
+        try:
+            result = dumped()
+        except Exception:  # pragma: no cover - 防御 SDK 版本差异
+            return {}
+        if isinstance(result, dict):
+            return result
+    return {}
+
+
+def _response_error_payload(response: Any) -> dict[str, Any]:
+    """取出响应体顶层的 ``error`` 对象（OpenAI SDK 会把它放进额外字段）。"""
+    raw = response.get("error") if isinstance(response, dict) else getattr(response, "error", None)
+    return _as_mapping(raw)
+
+
+def _describe_missing_choices(response: Any) -> str:
+    """解释「HTTP 200 但响应体没有 choices」的响应。
+
+    多数网关（如 OpenRouter）在 **已建立 200 响应之后** 才失败时，只会在响应体里
+    返回 ``{"error": {"code": ..., "message": ..., "metadata": {"error_type": ...}}}``；
+    OpenAI SDK 对这种响应不报错，于是 ``choices`` 缺失。把 ``code`` / ``error_type``
+    写进异常文本，既能定位真实原因，也让 :meth:`LLMClient._is_transient`
+    能按 ``code`` 判定是否值得重试。
+    """
+    payload = _response_error_payload(response)
+    if not payload:
+        return "模型响应中没有 choices 字段（响应体结构异常）"
+
+    metadata = _as_mapping(payload.get("metadata"))
+    code = payload.get("code", payload.get("status"))
+    error_type = metadata.get("error_type") or payload.get("error_type") or ""
+    message = str(payload.get("message") or "").strip()[:300]
+    generation = response.get("id") if isinstance(response, dict) else getattr(response, "id", None)
+
+    detail = "，".join(
+        part
+        for part in (
+            f"code={code}" if code is not None else "",
+            f"error_type={error_type}" if error_type else "",
+            message,
+        )
+        if part
+    )
+    text = f"模型响应中没有 choices 字段（网关在 200 之后失败，响应体只含 error）：{detail}"
+    if generation:
+        text += f"；generation={generation}"
+    return text
 
 
 def _as_text(value: Any) -> str:
@@ -426,7 +485,7 @@ class LLMClient:
     def _to_result(response: Any) -> ChatResult:
         choices = getattr(response, "choices", None) or []
         if not choices:
-            raise LLMError("模型响应中没有 choices 字段")
+            raise LLMError(_describe_missing_choices(response))
 
         choice = choices[0]
         message = getattr(choice, "message", None)

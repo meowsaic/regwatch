@@ -57,6 +57,37 @@ class FakeOpenAI:
         self.chat = type("Chat", (), {"completions": completions})()
 
 
+class FakeChoiceLessResponse:
+    """模拟「HTTP 200 + 只含 error、没有 choices」的网关响应。"""
+
+    def __init__(self, error: dict[str, Any] | None = None, response_id: str = "gen-test") -> None:
+        if error is not None:
+            self.error = error
+        self.id = response_id
+
+
+class FakeSequenceCompletions:
+    """按顺序吐出预置响应，用于验证重试次数。"""
+
+    def __init__(self, responses: list[Any]) -> None:
+        self.responses = list(responses)
+        self.calls = 0
+
+    def create(self, **kwargs: Any) -> Any:
+        self.calls += 1
+        return self.responses.pop(0)
+
+
+def _client_with_responses(
+    *responses: Any, max_retries: int = 0
+) -> tuple[LLMClient, FakeSequenceCompletions]:
+    profile = ModelProfile(id="fake", base_url="http://x", api_key="sk-1234567890abcdef", model="m")
+    client = LLMClient(profile, max_retries=max_retries, backoff=0)
+    completions = FakeSequenceCompletions(list(responses))
+    client._client = FakeOpenAI(completions)
+    return client, completions
+
+
 def _client(**profile_kwargs: Any) -> LLMClient:
     profile = ModelProfile(
         id="fake", base_url="http://x", api_key="sk-1234567890abcdef", model="m", **profile_kwargs
@@ -129,6 +160,58 @@ class TestDegrade:
         with pytest.raises(LLMError):
             client.chat([{"role": "user", "content": "hi"}], temperature=0.1)
         assert len(completions.calls) <= MAX_DEGRADATIONS + 1
+
+
+class TestGatewayErrorBody:
+    """网关在 200 之后失败：响应体只含 error、没有 choices（见 OpenRouter 文档）。"""
+
+    def test_error_body_is_surfaced_in_message(self) -> None:
+        client, _ = _client_with_responses(
+            FakeChoiceLessResponse(
+                {
+                    "code": 429,
+                    "message": "Rate limit exceeded",
+                    "metadata": {"error_type": "rate_limit_exceeded"},
+                }
+            )
+        )
+        with pytest.raises(LLMError) as excinfo:
+            client.chat([{"role": "user", "content": "hi"}])
+        text = str(excinfo.value)
+        assert "choices" in text
+        assert "429" in text
+        assert "rate_limit_exceeded" in text
+        assert "gen-test" in text
+
+    def test_transient_gateway_error_is_retried(self) -> None:
+        client, completions = _client_with_responses(
+            FakeChoiceLessResponse({"code": 503, "message": "Provider overloaded"}),
+            FakeResponse('{"ok": true}'),
+            max_retries=2,
+        )
+        assert client.chat([{"role": "user", "content": "hi"}]).content == '{"ok": true}'
+        assert completions.calls == 2
+
+    def test_content_policy_error_is_not_retried(self) -> None:
+        client, completions = _client_with_responses(
+            FakeChoiceLessResponse(
+                {
+                    "code": 403,
+                    "message": "Output blocked",
+                    "metadata": {"error_type": "content_policy_violation"},
+                }
+            ),
+            FakeResponse('{"ok": true}'),
+            max_retries=2,
+        )
+        with pytest.raises(LLMError):
+            client.chat([{"role": "user", "content": "hi"}])
+        assert completions.calls == 1
+
+    def test_response_without_error_detail_still_reports_choices(self) -> None:
+        client, _ = _client_with_responses(FakeChoiceLessResponse())
+        with pytest.raises(LLMError, match="choices"):
+            client.chat([{"role": "user", "content": "hi"}])
 
 
 class TestFactory:
