@@ -26,6 +26,11 @@ from regwatch.sources.csrc.models import (
     is_fund_by_title,
     is_non_case_title,
 )
+from regwatch.sources.docparse.office import (
+    _clx_from_fib,
+    _decode_piece_table,
+    _looks_like_garbage,
+)
 from regwatch.sources.htmlparse import extract_main_text, find_attachment_link, parse_html
 from regwatch.sources.http import DEFAULT_HEADERS, DEFAULT_USER_AGENT
 
@@ -105,6 +110,49 @@ class TestHtmlParse:
         assert find_attachment_link("https://x/y.html", parse_html("<p>无附件</p>")) is None
 
 
+class TestOleDocParsing:
+    """OLE 文档解析：CLX 按 FIB 定位、piece table 校验与乱码拦截。"""
+
+    @staticmethod
+    def _clx_with_unicode_piece(text: str, *, fc: int = 16, count: int | None = None):
+        encoded = text.encode("utf-16-le")
+        word_stream = b"\x00" * fc + encoded + b"\x00" * 8
+        chars = len(text) if count is None else count
+        cps = (0).to_bytes(4, "little") + chars.to_bytes(4, "little")
+        pcd = b"\x00\x00" + fc.to_bytes(4, "little") + b"\x00\x00"
+        lcb = 12 + 4
+        clx = b"\x02" + lcb.to_bytes(4, "little") + cps + pcd
+        return clx, word_stream
+
+    def test_decode_piece_table_unicode(self) -> None:
+        clx, word_stream = self._clx_with_unicode_piece("对赵铁祥采取出具警示函措施的决定")
+        assert _decode_piece_table(clx, word_stream) == "对赵铁祥采取出具警示函措施的决定"
+
+    def test_decode_piece_table_rejects_inconsistent_counts(self) -> None:
+        # 声明的字符数远超文档流大小：必须拒绝，否则会解出成片乱码
+        clx, word_stream = self._clx_with_unicode_piece("短文本", count=100000)
+        assert _decode_piece_table(clx, word_stream) == ""
+
+    def test_clx_from_fib(self) -> None:
+        word_stream = bytearray(0x1AA)
+        word_stream[0x01A2:0x01A6] = (20).to_bytes(4, "little")
+        word_stream[0x01A6:0x01AA] = (7).to_bytes(4, "little")
+        table = b"x" * 20 + b"CLXDATA" + b"tail"
+        assert _clx_from_fib(bytes(word_stream), table) == b"CLXDATA"
+
+    def test_clx_from_fib_out_of_range(self) -> None:
+        word_stream = bytearray(0x1AA)
+        word_stream[0x01A2:0x01A6] = (9999).to_bytes(4, "little")
+        word_stream[0x01A6:0x01AA] = (7).to_bytes(4, "little")
+        assert _clx_from_fib(bytes(word_stream), b"short") == b""
+
+    def test_looks_like_garbage(self) -> None:
+        assert _looks_like_garbage("\ua5ecÁ袊\x00倔¿" * 50)
+        assert not _looks_like_garbage(
+            "中国证券监督管理委员会广东监管局\n行政监管措施决定书〔2023〕25号\n" * 20
+        )
+
+
 class TestCsrcModels:
     def test_build_case_id(self) -> None:
         url = "https://www.csrc.gov.cn/csrc/c106068/c7615688/content.shtml"
@@ -128,6 +176,67 @@ class TestCsrcModels:
             extract_punished_entities("关于对某某基金管理有限公司采取警示函措施的决定", "")
             == "某某基金管理有限公司"
         )
+
+    def test_extract_person_not_polluted_by_body_org(self) -> None:
+        """个人处罚决定书：正文中的机构（检查对象）不得覆盖标题人名。
+
+        历史脏值「我局在对浙江澳创资产管理有限公司」即由此链路产生。
+        """
+        body = (
+            "孙玉涛： 我局在对浙江澳创资产管理有限公司（以下简称公司）私募业务情况"
+            "现场检查中发现，公司存在向不合格投资者募集资金等问题。"
+        )
+        assert extract_punished_entities("关于对孙玉涛采取出具警示函措施的决定", body) == "孙玉涛"
+
+    def test_extract_person_from_party_line_without_title_name(self) -> None:
+        """行政处罚决定书：标题无主体时从正文「当事人：」取自然人。"""
+        body = (
+            "当事人：陈玲玲，女，1963年6月出生，住址：深圳市龙华区。"
+            "我局对陈玲玲内幕交易无锡帝科电子材料股份有限公司（以下简称帝科股份）"
+            "股票行为进行了立案调查、审理。"
+        )
+        assert (
+            extract_punished_entities(
+                "中国证券监督管理委员会新疆监管局行政处罚决定书〔2022〕5号", body
+            )
+            == "陈玲玲"
+        )
+
+    def test_extract_multi_persons_from_party_lines(self) -> None:
+        body = (
+            "当事人：于勇：男，1975年2月出生，住址：深圳市南山区。\n"
+            "汪文政：男，1968年4月出生，住址：重庆市两江新区。\n"
+            "依据2005年修订的《中华人民共和国证券法》的有关规定，我局对于勇、汪文政"
+            "内幕交易福建福日电子股份有限公司（以下简称福日电子）股票一案进行了立案调查。"
+        )
+        assert (
+            extract_punished_entities(
+                "中国证券监督管理委员会重庆监管局行政处罚决定书〔2024〕1号", body
+            )
+            == "于勇、汪文政"
+        )
+
+    def test_extract_review_decision_keeps_person(self) -> None:
+        """「认定为不适当人选」措辞不得把「认定为不适当人选」留在主体里。"""
+        assert (
+            extract_punished_entities("关于对叶镇华认定为不适当人选监管措施的决定〔2023〕95号", "")
+            == "叶镇华"
+        )
+        assert (
+            extract_punished_entities("关于对李国新认定为不适当人选监管措施的决定〔2023〕96号", "")
+            == "李国新"
+        )
+
+    def test_generic_bracket_fallback_requires_org_tail(self) -> None:
+        """泛匹配「（以下简称」不得把「……合规管理办法》（以下简称）」等句子抓为主体。"""
+        body = (
+            "应妍赟： 经查，你在国盛证券有限责任公司宁波桑田路证券营业部任职期间，"
+            "存在委托他人从事客户招揽活动的行为。\n"
+            "上述行为违反了《证券经纪人管理暂行规定》第十二条第八项和"
+            "《证券公司和证券投资基金管理公司合规管理办法》（以下简称《合规管理办法》）"
+            "第十条第二款的规定。"
+        )
+        assert extract_punished_entities("关于对应妍赟采取出具警示函措施的决定", body) == "应妍赟"
 
     def test_is_non_case_title(self) -> None:
         assert is_non_case_title("2024年4月12日新闻发布会") is True

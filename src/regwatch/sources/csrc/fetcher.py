@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from urllib.parse import urljoin
 
@@ -40,6 +41,15 @@ SIDEBAR_PREFIXES: tuple[str, ...] = (
     "tz",
 )
 
+#: 附件文件名后缀（正文区只有附件链接时，HTML「正文」会退化成文件名）
+_ATTACHMENT_SUFFIX = re.compile(r"\.(?:docx?|wps|pdf)\b", re.IGNORECASE)
+
+
+def _looks_like_attachment_only(text: str) -> bool:
+    """HTML「正文」是否只是附件下载区（文件名 + 「打印/关闭窗口」等）。"""
+    stripped = (text or "").strip()
+    return len(stripped) < 300 and bool(_ATTACHMENT_SUFFIX.search(stripped))
+
 
 def fetch_html_page(html_url: str) -> BeautifulSoup | None:
     """获取详情页并解析；失败返回 ``None``。"""
@@ -58,13 +68,13 @@ def find_pdf_link_in_page(page_url: str, soup: BeautifulSoup | None = None) -> s
 
 
 def find_doc_link_in_page(page_url: str, soup: BeautifulSoup | None = None) -> str | None:
-    """查找详情页内的 Word 附件链接（内蒙古等局以 .docx 提供决定书）。"""
+    """查找详情页内的 Word 附件链接（内蒙古等局以 .docx、广东等局以 .wps 提供决定书）。"""
     if soup is None:
         soup = fetch_html_page(page_url)
         if soup is None:
             return None
     return find_attachment_link(
-        page_url, soup, suffixes=(".doc", ".docx"), sidebar_prefixes=SIDEBAR_PREFIXES
+        page_url, soup, suffixes=(".doc", ".docx", ".wps"), sidebar_prefixes=SIDEBAR_PREFIXES
     )
 
 
@@ -132,11 +142,11 @@ def process_case(
         pdf_url = find_pdf_link_in_page(full_link, soup=soup) or ""
 
         html_text = extract_text_from_html(full_link, soup=soup)
-        if html_text and len(html_text) > 50:
+        if html_text and len(html_text) > 50 and not _looks_like_attachment_only(html_text):
             raw_text = html_text
             progress(f"  [HTML✓] {title} ({len(html_text)} 字符)")
         else:
-            raw_text = html_text or ""
+            raw_text = ""
             doc_url = find_doc_link_in_page(full_link, soup=soup) or ""
             if doc_url:
                 doc_text = extract_text_from_docx(doc_url)

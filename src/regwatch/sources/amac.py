@@ -58,6 +58,19 @@ CATEGORIES: dict[str, dict[str, str]] = {
     "Personnel": {"name": "受处分人员", "url": "https://www.amac.org.cn/zlgl/jlcf/scfry/"},
 }
 
+#: 详情页上属于导航 / 新闻推荐区的路径段，查找 PDF 附件时排除
+#: （否则会把「活动剪影」等栏目里的无关 PDF 误当决定书附件）
+SIDEBAR_PATH_SEGMENTS: tuple[str, ...] = (
+    "hydj",
+    "djdt",
+    "xwfb",
+    "hdjl",
+    "hyyj",
+    "sjtj",
+    "zwgk",
+    "tz",
+)
+
 DELAY_BETWEEN_PAGES = 1.5
 DELAY_BETWEEN_CASES = 2.0
 LIST_PAGE_RETRIES = 3
@@ -250,7 +263,13 @@ def process_case(
         raw_text = ocr_pdf_url(full_link, llm) or ""
     else:
         soup = fetch_soup(full_link)
-        found = find_attachment_link(full_link, soup, suffixes=(".pdf",)) if soup else None
+        found = (
+            find_attachment_link(
+                full_link, soup, suffixes=(".pdf",), sidebar_prefixes=SIDEBAR_PATH_SEGMENTS
+            )
+            if soup
+            else None
+        )
         pdf_url = found or ""
 
         if pdf_url:

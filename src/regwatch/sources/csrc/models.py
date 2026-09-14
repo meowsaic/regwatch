@@ -112,6 +112,51 @@ _NAME_HINT = r"(?:公司|企业|基金|合伙|中心|集团|事务所|有限|资
 _ENTITY_HINT = r"(?:公司|企业|有限|合伙|事务所|集团)"
 _PARTY_PREFIXES = ("当事人", "被申请人", "申请人", "被处罚人", "被处置机构", "被调查人")
 
+#: 自然人特征：2–4 个汉字（可带间隔号），且不含机构字眼
+_PERSON_NAME = re.compile(r"^[\u4e00-\u9fa5·]{2,4}$")
+_ORG_WORDS = re.compile(
+    r"公司|企业|合伙|中心|事务所|集团|基金|证券|银行|期货|保险|信托|资管|"
+    r"资本|资产|投资|控股|科技|创业|实业|股份|有限"
+)
+#: 机构名结尾（容忍「（有限合伙）」这类带括号的写法）
+_ORG_TAIL = re.compile(
+    r"(?:公司|企业|中心|事务所|集团|合伙|协会|基金会|银行|证券|期货|基金|研究所)[）)]?$"
+)
+
+
+def _looks_like_person(name: str) -> bool:
+    """标题主体是否像自然人（支持「甲、乙」多主体）。
+
+    「关于对孙玉涛采取…」这类个人处罚决定书里，正文中的机构只是**被检查
+    对象**，不能用来覆盖标题已明确的自然人；否则会被抓成
+    「我局在对浙江澳创资产管理有限公司」这样的脏值。
+    """
+    parts = [part for part in re.split(r"[、,，]", name or "") if part]
+    if not parts:
+        return False
+    return all(_PERSON_NAME.match(part) and not _ORG_WORDS.search(part) for part in parts)
+
+
+def _party_person_names(snippet: str) -> str:
+    """从正文「当事人：」字段提取自然人，支持多名。
+
+    行政处罚决定书常写「当事人：于勇：男，1975年2月出生……\\n汪文政：男，……」，
+    多条用顿号合并；若「当事人：」后紧跟的是机构名（以「，男/女」结尾的才算
+    自然人），返回空串交给机构分支处理。
+    """
+    match = re.search(r"当事人[：:]\s*", snippet)
+    if not match:
+        return ""
+    window = snippet[match.end() : match.end() + 240]
+    first = re.match(r"([\u4e00-\u9fa5·]{2,10})[：:，,]\s*[男女]", window)
+    if not first or _ORG_WORDS.search(first.group(1)):
+        return ""
+    names = [first.group(1)]
+    for item in re.finditer(r"[\n。；;]\s*([\u4e00-\u9fa5·]{2,10})[：:，,]\s*[男女]", window):
+        if item.group(1) not in names:
+            names.append(item.group(1))
+    return "、".join(names)
+
 
 def clean_entity_name(raw: str) -> str:
     """去掉误吸入的监管措施尾巴，如「张西湖采取出具警示函措施」→「张西湖」。"""
@@ -122,7 +167,8 @@ def clean_entity_name(raw: str) -> str:
     cleaned = re.split(
         r"(?:采取|出具|作出|给予|责令|实施|处以|处|撤销|注销|暂停|取消|监管谈话|"
         r"行政处罚|监管措施|行政监管措施|警示函|监管函|监管工作函|"
-        r"警示函措施|监管谈话措施|责令改正措施|行政监管措施决定)",
+        r"警示函措施|监管谈话措施|责令改正措施|行政监管措施决定|"
+        r"认定为不适当人选|公开谴责|限制股东权利|责令购回)",
         text,
         maxsplit=1,
     )[0]
@@ -138,7 +184,8 @@ def extract_org_name_from_title(title: str) -> str | None:
     # 优先：动作词前截断（对个人名也适用，最短 2 字）
     action = re.search(
         r"(?:关于)?对[《]?([^》、，,]+?)[》]?(?:的)?"
-        r"(?:采取|出具|作出|给予|责令|撤销|注销|暂停|取消|行政处罚|监管措施|警示|监管谈话)",
+        r"(?:采取|出具|作出|给予|责令|撤销|注销|暂停|取消|行政处罚|监管措施|警示|监管谈话|"
+        r"公开谴责|认定为不适当人选|限制股东权利)",
         title,
     )
     if action:
@@ -147,7 +194,8 @@ def extract_org_name_from_title(title: str) -> str | None:
             return name
 
     patterns = (
-        r"关于对[《]?([^》]+?)[》]?(?:的)?(?:行政处罚|监管措施|采取|撤销|注销|暂停|取消|责令|警示|监管谈话)",
+        r"关于对[《]?([^》]+?)[》]?(?:的)?(?:行政处罚|监管措施|采取|撤销|注销|暂停|取消|责令|警示|监管谈话|"
+        r"公开谴责|认定为不适当人选|限制股东权利)",
         r"关于对[《]?([^》]+?)[》]?的",
         r"关于[《]?([^》]+?)[》]?(?:的)?(?:行政处罚|监管措施|决定)",
     )
@@ -219,13 +267,25 @@ def extract_full_org_name_from_text(short_name: str | None, raw_text: str) -> st
         if match and len(match.group(1).strip()) >= 4:
             return match.group(1).strip()
 
-    match = re.search(
-        r"([^，,：:；;\n]+?(?:" + _ENTITY_HINT + r")[^，,：:；;\n]*?)（以下简称", snippet
-    )
-    if match:
-        name = _strip_prefix(match.group(1).strip())
-        if len(name) >= 4:
-            return name
+    # 自然人当事人（行政处罚决定书「当事人：张三，男」）
+    names = _party_person_names(snippet)
+    if names:
+        return names
+
+    # 泛匹配「…（以下简称」仅用于补全标题给出的简称；标题没有主体时不再启用，
+    # 且匹配段不得跨越句号 / 书名号，否则会把
+    # 「我局对陈玲玲内幕交易……（以下简称帝科股份）」这类整句抓成当事人。
+    if short_name:
+        match = re.search(
+            r"([^，,：:；;。、《》\n]+?(?:"
+            + _ENTITY_HINT
+            + r")[^，,：:；;。、《》\n]*?)（以下简称",
+            snippet,
+        )
+        if match:
+            name = _strip_prefix(match.group(1).strip())
+            if len(name) >= 4 and _ORG_TAIL.search(name):
+                return name
 
     return None
 
@@ -234,6 +294,9 @@ def extract_punished_entities(title: str, raw_text: str) -> str:
     """提取受处罚主体名称（多个用顿号分隔）。"""
     name = extract_org_name_from_title(title)
     if name and re.search(_ENTITY_HINT, name):
+        return clean_entity_name(name)
+    if name and _looks_like_person(name):
+        # 标题已明确自然人：正文中的机构只是被检查对象，不得覆盖
         return clean_entity_name(name)
     if raw_text:
         full_name = extract_full_org_name_from_text(name, raw_text)

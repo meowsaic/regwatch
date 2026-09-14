@@ -70,9 +70,11 @@ def fetch_soup(
 
 #: 正文容器的候选选择器（按优先级）
 CONTENT_SELECTORS: tuple[Any, ...] = (
-    ("div", {"class": "detail-news"}),
+    ("div", {"class": "detail-news"}),  # CSRC 详情页
     ("div", {"class": "TRS_Editor"}),
     ("div", {"class": "Custom_UnionStyle"}),
+    # AMAC 详情页（老模板无 detail-news；宽松正则若先命中会抓到 tabs 新闻区）
+    ("div", {"class": "content"}),
     ("div", {"class": re.compile(r"detail|article|content|text", re.I)}),
     ("div", {"id": re.compile(r"detail|article|content|zoom", re.I)}),
 )

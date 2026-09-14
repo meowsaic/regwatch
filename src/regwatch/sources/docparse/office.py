@@ -8,6 +8,7 @@ WordDocument 流文本还原，并带 OLE 目录兜底。
 from __future__ import annotations
 
 import re
+from itertools import pairwise
 
 from ...logging_setup import get_logger
 from ..common import progress
@@ -40,12 +41,103 @@ def _detect_doc_format(content: bytes) -> str:
     return "unknown"
 
 
+#: FIB 中 fcClx / lcbClx 的偏移（Word 97+ Binary Format）
+_FIB_FC_CLX_OFFSET = 0x01A2
+_FIB_LCB_CLX_OFFSET = 0x01A6
+
+
+def _clx_from_fib(word_stream: bytes, table_stream: bytes) -> bytes:
+    """按 FIB 规范读取 CLX（首选路径）。
+
+    Word 97+ 规定 fcClx/lcbClx 位于 WordDocument 流偏移 0x01A2；
+    盲扫 0x02 标志会命中 table 流里的假阳性（WPS 生成的 .doc 常见），
+    进而把不相关字节当 piece table 解出成片乱码。
+    """
+    if len(word_stream) < _FIB_LCB_CLX_OFFSET + 4 or not table_stream:
+        return b""
+    fc_clx = int.from_bytes(word_stream[_FIB_FC_CLX_OFFSET : _FIB_FC_CLX_OFFSET + 4], "little")
+    lcb_clx = int.from_bytes(word_stream[_FIB_LCB_CLX_OFFSET : _FIB_LCB_CLX_OFFSET + 4], "little")
+    if 0 <= fc_clx < len(table_stream) and 0 < lcb_clx <= len(table_stream) - fc_clx:
+        return table_stream[fc_clx : fc_clx + lcb_clx]
+    return b""
+
+
+def _clx_by_scan(table_stream: bytes) -> bytes:
+    """兜底：盲扫 Pcdt 的 0x02 标志（FIB 不可用时）。"""
+    idx = 0
+    while idx < len(table_stream) - 6:
+        if table_stream[idx] == 0x02:
+            lcb = int.from_bytes(table_stream[idx + 1 : idx + 5], "little")
+            if 0 < lcb < len(table_stream) - idx - 5 and (lcb - 4) % 12 == 0:
+                return table_stream[idx:]
+        idx += 1
+    return b""
+
+
+def _decode_piece_table(clx: bytes, word_stream: bytes) -> str:
+    """解析 CLX（Prc* + Pcdt）中的 piece table 并按 CP 顺序拼接文本。
+
+    结构异常（CP 不单调、字符数与流大小矛盾等）时返回空串——
+    宁缺毋滥，避免把随机字节解成大片乱码。
+    """
+    idx = 0
+    while idx < len(clx):
+        flag = clx[idx]
+        if flag == 0x01:  # Prc：跳过
+            if idx + 3 > len(clx):
+                return ""
+            cb = int.from_bytes(clx[idx + 1 : idx + 3], "little")
+            idx += 3 + cb
+            continue
+        if flag != 0x02:
+            return ""
+        if idx + 5 > len(clx):
+            return ""
+        lcb = int.from_bytes(clx[idx + 1 : idx + 5], "little")
+        plc = clx[idx + 5 : idx + 5 + lcb]
+        return _decode_pieces(plc, word_stream)
+    return ""
+
+
+def _decode_pieces(plc: bytes, word_stream: bytes) -> str:
+    """PLCFpcd = (n+1)*CP(4字节) + n*PCD(8字节)，逐片解码 Unicode / ANSI 文本。"""
+    if len(plc) < 4 or (len(plc) - 4) % 12 != 0:
+        return ""
+    n = (len(plc) - 4) // 12
+    if n <= 0 or n > 4096:
+        return ""
+    cps = [int.from_bytes(plc[i * 4 : (i + 1) * 4], "little") for i in range(n + 1)]
+    if cps[0] != 0 or any(b < a for a, b in pairwise(cps)):
+        return ""
+    # 每字符至少占 1 字节，总字符数不可能超过文档流长度
+    if cps[-1] <= 0 or cps[-1] > len(word_stream):
+        return ""
+    pcds_start = (n + 1) * 4
+
+    text_parts: list[str] = []
+    for i in range(n):
+        pcd = plc[pcds_start + i * 8 : pcds_start + (i + 1) * 8]
+        if len(pcd) < 8:
+            return ""
+        fc_raw = int.from_bytes(pcd[2:6], "little")
+        # bit30=1 表示 ANSI 压缩编码（fc 需除以 2），bit30=0 表示 Unicode
+        is_unicode = not (fc_raw & 0x40000000)
+        fc = fc_raw & 0x3FFFFFFF
+        char_count = cps[i + 1] - cps[i]
+        if is_unicode:
+            raw = word_stream[fc : fc + char_count * 2]
+            text_parts.append(raw.decode("utf-16-le", errors="ignore"))
+        else:
+            raw = word_stream[fc // 2 : fc // 2 + char_count]
+            text_parts.append(raw.decode("cp936", errors="ignore"))
+    return "".join(text_parts)
+
+
 def _extract_text_from_ole(content: bytes) -> str:
     """从 OLE 复合文档（.doc 旧格式）提取正文文本。
 
-    通过 olefile 读取 WordDocument 流与 Table 流，解析 piece table
-    （CLX 中的 PLCFpcd）按 CP 顺序拼接文本片段。Word Binary Format
-    中文本可能为 Unicode（UTF-16-LE）或 ANSI（cp936）。
+    优先按 FIB 规范读取 fcClx/lcbClx 定位 piece table（:func:`_clx_from_fib`），
+    失败退回旧版盲扫（:func:`_clx_by_scan`）；结构校验不过时使用流内文本兜底。
 
     Args:
         content: .doc 文件字节内容。
@@ -70,50 +162,35 @@ def _extract_text_from_ole(content: bytes) -> str:
 
         # piece table 存放在 0Table 或 1Table 流
         table_name = "0Table" if ole.exists("0Table") else "1Table"
-        if not ole.exists(table_name):
-            return _fallback_extract_ole_text(word_stream)
-        table_stream = ole.openstream(table_name).read()
+        table_stream = ole.openstream(table_name).read() if ole.exists(table_name) else b""
 
-        # CLX = Prc* + Pcdt；Pcdt 以 0x02 标志开头，后跟 4 字节 lcb
-        # PLCFpcd = (n+1)*CP(4字节) + n*PCD(8字节)，故 lcb = 12n+4
-        clx_offset = -1
-        clx_len = 0
-        idx = 0
-        while idx < len(table_stream) - 6:
-            if table_stream[idx] == 0x02:
-                lcb = int.from_bytes(table_stream[idx + 1 : idx + 5], "little")
-                if 0 < lcb < len(table_stream) - idx - 5 and (lcb - 4) % 12 == 0:
-                    clx_offset = idx + 5
-                    clx_len = lcb
-                    break
-            idx += 1
+        for clx in (_clx_from_fib(word_stream, table_stream), _clx_by_scan(table_stream)):
+            if not clx:
+                continue
+            text = _decode_piece_table(clx, word_stream)
+            if len(text) > 50:
+                return text
 
-        if clx_offset < 0:
-            return _fallback_extract_ole_text(word_stream)
-
-        plc = table_stream[clx_offset : clx_offset + clx_len]
-        n = (clx_len - 4) // 12
-        cps = [int.from_bytes(plc[i * 4 : (i + 1) * 4], "little") for i in range(n + 1)]
-        pcds_start = (n + 1) * 4
-
-        text_parts: list[str] = []
-        for i in range(n):
-            pcd = plc[pcds_start + i * 8 : pcds_start + (i + 1) * 8]
-            fc_raw = int.from_bytes(pcd[2:6], "little")
-            # bit30=1 表示 ANSI 压缩编码（fc 需除以 2），bit30=0 表示 Unicode
-            is_unicode = not (fc_raw & 0x40000000)
-            fc = fc_raw & 0x3FFFFFFF
-            char_count = cps[i + 1] - cps[i]
-            if is_unicode:
-                raw = word_stream[fc : fc + char_count * 2]
-                text_parts.append(raw.decode("utf-16-le", errors="ignore"))
-            else:
-                fc = fc // 2
-                raw = word_stream[fc : fc + char_count]
-                text_parts.append(raw.decode("cp936", errors="ignore"))
-        return "".join(text_parts)
+        fallback = _fallback_extract_ole_text(word_stream)
+        if len(fallback) > 50 and not _looks_like_garbage(fallback):
+            return fallback
+        return ""
     finally:
         ole.close()
+
+
+_CJK_CHAR = re.compile(r"[\u4e00-\u9fff]")
+
+
+def _looks_like_garbage(text: str) -> bool:
+    """粗判文本是否为二进制乱码：黑体取样中「汉字 + 可见 ASCII」占比过低。"""
+    sample = text[:4000]
+    if not sample:
+        return True
+    readable = len(_CJK_CHAR.findall(sample)) + sum(
+        1 for ch in sample if ch.isascii() and ch.isprintable()
+    )
+    return readable / len(sample) < 0.5
 
 
 def _fallback_extract_ole_text(stream: bytes) -> str:
@@ -229,6 +306,9 @@ def extract_text_from_docx(doc_url: str) -> str | None:
 
     if not text or len(text) <= 50:
         logger.warning(f"  [Word文档] 提取文本过短（{len(text or '')} 字符，格式={fmt}）")
+        return None
+    if _looks_like_garbage(text):
+        logger.warning(f"  [Word文档] 提取结果为乱码（格式={fmt}，{len(text)} 字符），已丢弃")
         return None
 
     text = re.sub(r"\n{3,}", "\n\n", text)
