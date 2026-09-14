@@ -705,6 +705,51 @@ def test_qa_page_renders_credentials_form(monkeypatch: pytest.MonkeyPatch) -> No
     assert any("监管案例助手" in (item.value or "") for item in at.markdown)
 
 
+def test_qa_default_endpoint_follows_qa_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """预填端点：取全局配置里 ``qa`` 任务绑定的模型条目；无模型条目时留空。"""
+    from regwatch.domain import ModelProfile
+    from regwatch.settings import Settings
+    from regwatch.web.views import qa as qa_view
+
+    preset = Settings(
+        models=(ModelProfile(id="gw", base_url="https://llm.example/v1", model="deepseek-chat"),),
+        tasks={"qa": "gw"},
+    )
+    monkeypatch.setattr(qa_view, "settings", lambda: preset)
+    assert qa_view._default_endpoint() == ("https://llm.example/v1", "deepseek-chat")
+
+    monkeypatch.setattr(qa_view, "settings", lambda: Settings())
+    assert qa_view._default_endpoint() == ("", "")
+
+
+def test_qa_page_prefills_default_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """公开问答页：接口地址与模型预填默认值，访客只需补自己的 API Key。"""
+    pytest.importorskip("streamlit.testing.v1")
+    from streamlit.testing.v1 import AppTest
+
+    from regwatch.domain import ModelProfile
+    from regwatch.settings import Settings
+
+    preset = Settings(
+        models=(ModelProfile(id="gw", base_url="https://llm.example/v1", model="deepseek-chat"),),
+        tasks={"qa": "gw"},
+    )
+    monkeypatch.setattr("regwatch.web.views.qa.settings", lambda: preset)
+    monkeypatch.setenv("REGWATCH_READ_ONLY", "1")
+    monkeypatch.delenv("REGWATCH_ADMIN_TOKEN", raising=False)
+
+    at = AppTest.from_string(_VIEW_SCRIPT.format(view="qa"), default_timeout=180)
+    at.run()
+    assert not at.exception, [str(item.value) for item in at.exception]
+    inputs = {item.key: item for item in at.text_input}
+    assert inputs["regwatch.qa.base_url"].value == "https://llm.example/v1"
+    assert inputs["regwatch.qa.model"].value == "deepseek-chat"
+    assert not inputs["regwatch.qa.api_key"].value
+    assert any("粘贴你自己的 API Key" in (item.value or "") for item in at.markdown)
+    # 只填了默认端点、还没填 Key：对话输入仍禁用
+    assert at.chat_input[0].disabled is True
+
+
 def test_qa_chat_submit_renders_answer(monkeypatch: pytest.MonkeyPatch) -> None:
     """Chat 布局：提交后用户/助手消息可见，且答案旁有下载按钮。"""
     pytest.importorskip("streamlit.testing.v1")

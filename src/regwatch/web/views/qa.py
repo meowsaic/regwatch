@@ -9,6 +9,8 @@
 
 权限与凭证策略不变：非管理员必须会话内手填；管理员默认全局模型。
 手填凭证只存 ``session_state``，不写 config、不进日志。
+接口地址与模型按全局配置里 ``qa`` 绑定的模型条目预填（见 :func:`_default_endpoint`），
+公开部署下访客只需粘贴自己的 API Key。
 """
 
 from __future__ import annotations
@@ -181,9 +183,22 @@ def _resolve_client(qa: Any, admin: bool) -> tuple[Any, str]:
     )
 
 
+def _default_endpoint() -> tuple[str, str]:
+    """凭证输入框的预填端点 ``(base_url, model)``。
+
+    取全局配置里 ``qa`` 任务绑定的模型条目（未绑定时按 ``Settings.resolve_profile``
+    回落为第一条）；没有任何模型条目时返回空串，由访客自行填写。
+    """
+    profile = settings().resolve_profile(task="qa", required=False)
+    if profile is None:
+        return "", ""
+    return profile.base_url, profile.model
+
+
 def _render_source_note(admin: bool, source: str) -> None:
     with st.expander("模型与 API 凭证", expanded=source == "none"):
         cred = _credentials()
+        default_base_url, default_model = _default_endpoint()
         if admin:
             st.checkbox(
                 "使用我的 API（忽略全局模型）",
@@ -212,23 +227,28 @@ def _render_source_note(admin: bool, source: str) -> None:
                     icon="⚠",
                 )
         else:
-            ui.callout(
+            note = (
                 "公开访问模式：请使用**你自己的** OpenAI 兼容 API Key。"
-                "凭证仅保存在当前浏览器会话，不会写入服务器配置。",
-                tone="accent",
-                icon="ℹ",
+                "凭证仅保存在当前浏览器会话，不会写入服务器配置。"
             )
+            if default_base_url and default_model:
+                note = (
+                    "公开访问模式：接口地址与模型已预填默认值，"
+                    "粘贴你自己的 API Key 即可开始提问。"
+                    "凭证仅保存在当前浏览器会话，不会写入服务器配置。"
+                )
+            ui.callout(note, tone="accent", icon="ℹ")
 
         base_url = st.text_input(
             "接口地址 base_url",
-            value=cred.get("base_url", ""),
+            value=cred.get("base_url") or default_base_url,
             placeholder="https://api.deepseek.com 或 https://openrouter.ai/api/v1",
             key="regwatch.qa.base_url",
             disabled=source == "global",
         )
         model = st.text_input(
             "模型名称 model",
-            value=cred.get("model", ""),
+            value=cred.get("model") or default_model,
             placeholder="deepseek-chat",
             key="regwatch.qa.model",
             disabled=source == "global",

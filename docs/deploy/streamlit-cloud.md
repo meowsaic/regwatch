@@ -131,6 +131,12 @@ database_token = "ghp_xxx"   # 私有仓库 Release 资产需要
 真实环境变量优先于同名 Secrets；嵌套表（`[api_keys]` 这类）不处理，请用扁平的
 `api_key_xxx = "..."` 写法。
 
+> **问答页不需要配密钥**：「智能问答」对访客强制使用访客自己的 Key，页面已按
+> `config.example.json` 里 `tasks.qa` 绑定的模型条目（默认 `deepseek-v4-flash`，
+> base_url `https://llm.ouyeelf.com/v1`、模型 `deepseek-chat`）预填接口地址与模型，
+> 访客粘贴自己的 Key 即可提问。想换默认端点：改 `config.example.json` 里的
+> `tasks.qa` 绑定（或本地「模型与配置」页的任务绑定），两边同时生效。
+
 ---
 
 ## 4. 数据从哪来（三选一）

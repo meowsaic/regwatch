@@ -5,6 +5,7 @@
     "模型接入统一使用 OpenAI 兼容协议，只需填写 base_url / api_key / model 三项。",
     "DeepSeek 官方文档：https://api-docs.deepseek.com/zh-cn/",
     "API Key 也可通过环境变量提供，优先级高于本文件：REGWATCH_API_KEY_<模型ID大写>。",
+    "公开部署的「智能问答」页会预填 tasks.qa 绑定条目的 base_url 与 model，访客只需填自己的 API Key。",
     "数据统一存放于 database 指定的 SQLite 库。"
   ],
   "database": "data/regwatch.db",
@@ -26,12 +27,25 @@
       "token_param": "max_tokens",
       "extra": {},
       "note": "base_url 也可写 https://api.deepseek.com/v1；视觉模型留空时回落到文本模型"
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "label": "DeepSeek V4 Flash",
+      "base_url": "https://llm.ouyeelf.com/v1",
+      "api_key": "",
+      "api_key_env": "",
+      "model": "deepseek-chat",
+      "vision_model": "",
+      "vision_content_type": "image_url",
+      "token_param": "max_tokens",
+      "extra": {},
+      "note": "OpenAI 兼容网关（实际模型标识仍写 deepseek-chat）：公开问答页的默认端点，访客只需粘贴自己的 API Key"
     }
   ],
   "tasks": {
     "summarize": "deepseek",
     "report": "deepseek",
     "vision": "",
-    "qa": "deepseek"
+    "qa": "deepseek-v4-flash"
   }
 }

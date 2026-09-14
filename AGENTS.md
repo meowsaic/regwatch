@@ -147,6 +147,7 @@ CSRC 专属 `case_type`(penalty/measure)、`bureau`、`document_number`、`punis
 | 某违规类型全部案例 | `CaseQuery(violations=("挪用基金财产",))`（多类型为「或」语义） |
 | 生成季度报告 | `regwatch report --dataset amac --start ... --end ... --llm` |
 | 补充/重跑摘要 | `regwatch summarize --dataset csrc --workers 5`（`--redo` 连同已完成案例一起重跑，用于提示词升级后回填） |
+| 改公开问答页默认端点 | 改 `config.example.json` 里 `tasks.qa` 绑定的模型条目（`base_url` / `model`）；网页问答页会把该条目预填给访客（`web/views/qa.py::_default_endpoint`），访客只需填自己的 Key |
 | 补机构类型 | `regwatch org-type` / `regwatch org-type --interactive` |
 | 撰写新分析 | 参考 `data/reports/*/*.md` 结构与 `services/reporting.py` 的渲染函数 |
 
