@@ -7,9 +7,11 @@ from regwatch.domain import CaseQuery, CaseRecord, CaseStatus, Dataset, SummaryR
 from regwatch.services.data_repair import (
     DataRepairService,
     clean_csrc_entity,
+    extract_authoritative_csrc_entity,
     extract_document_number,
     extract_punished_entity_from_title,
     extract_punishment_date_from_text,
+    is_dirty_csrc_entity,
     is_valid_date,
     normalize_entity_type,
 )
@@ -117,6 +119,58 @@ class TestExtractors:
         text = "……二〇二六年五月十一日"
         assert extract_punishment_date_from_text(text) == "2026-05-11"
 
+    def test_is_dirty_csrc_entity_positive(self) -> None:
+        assert is_dirty_csrc_entity("我局在对杭州巨鲸财富管理有限公司")
+        assert is_dirty_csrc_entity("上述行为违反了《证券公司和证券投资基金管理公司合规管理办法》")
+        assert is_dirty_csrc_entity("宜宾市叙州区政府有关部门、宜宾市叙州区创益产业投资有限公司")
+        assert is_dirty_csrc_entity("773股博信股权投资基金管理股份有限公司")
+        assert is_dirty_csrc_entity("以下简称公司）上海虹口区飞虹路证券营业部")
+
+    def test_is_dirty_csrc_entity_negative(self) -> None:
+        assert not is_dirty_csrc_entity("杭州巨鲸财富管理有限公司")
+        assert not is_dirty_csrc_entity("倪心刚")
+        assert not is_dirty_csrc_entity("绝味食品、戴文军、彭刚毅、彭才刚")
+        assert not is_dirty_csrc_entity("熊蕾等22人")
+        assert not is_dirty_csrc_entity("李治权、林小丽、倪新亮及陈瑶")
+        assert not is_dirty_csrc_entity("")
+
+    def test_is_dirty_csrc_entity_title_variants(self) -> None:
+        """标题原文的「及相关责任人」「及在湘各营业部」等写法是合法值。"""
+        assert not is_dirty_csrc_entity("凯盛新能源股份有限公司及有关责任人员")
+        assert not is_dirty_csrc_entity("长白山皇封参业股份有限公司及相关责任人")
+        assert not is_dirty_csrc_entity("中泰证券股份有限公司湖南分公司及在湘各营业部")
+        assert not is_dirty_csrc_entity("⼴州凡拓数字创意科技股份有限公司、伍穗颖、段⼀⻰")
+
+    def test_deregistration_title_rejects_generic_notice(self) -> None:
+        from regwatch.services.data_repair import extract_entity_from_deregistration_title
+
+        assert (
+            extract_entity_from_deregistration_title(
+                "关于注销期间届满未提交专项法律意见书私募基金管理人登记的公告"
+            )
+            == ""
+        )
+        assert (
+            extract_entity_from_deregistration_title(
+                "关于注销深圳市同盈股权基金管理有限公司私募基金管理人登记的公告"
+            )
+            == "深圳市同盈股权基金管理有限公司"
+        )
+
+    def test_extract_authoritative_entity_refuses_body_sentence(self) -> None:
+        # 标题与正文都拿不到主体时宁缺毋滥，不得回落到正文句子
+        assert (
+            extract_authoritative_csrc_entity("中国证券监督管理委员会浙江监管局行政处罚决定书", "")
+            == ""
+        )
+        assert (
+            extract_authoritative_csrc_entity(
+                "中国证券监督管理委员会浙江监管局行政处罚决定书",
+                "〔2025〕33号\n当事人：焦健，女，1985年11月出生，住址：北京市海淀区。",
+            )
+            == "焦健"
+        )
+
 
 def _seed(store: DataStore) -> None:
     store.cases.upsert(
@@ -203,3 +257,66 @@ class TestRepairService:
         amac = store.cases.get(Dataset.AMAC, "P1")
         assert amac is not None
         assert amac.punished_entity == "已有当事人"
+
+    def test_repair_replaces_dirty_entities(self, store: DataStore) -> None:
+        _seed(store)
+        store.cases.upsert(
+            CaseRecord(
+                dataset=Dataset.CSRC,
+                case_id="C2",
+                title="关于对倪心刚采取出具警示函措施的决定",
+                date="2023-12-08",
+                status=CaseStatus.DONE,
+                case_type="measure",
+                bureau="Zhejiang",
+                punished_entities="我局在对杭州巨鲸财富管理有限公司",
+                raw_text=(
+                    "倪心刚： 我局在对杭州巨鲸财富管理有限公司（以下简称巨鲸财富）私募业务"
+                    "检查中发现，巨鲸财富存在未对不同的私募基金单独建账等问题。"
+                ),
+            )
+        )
+        store.summaries.upsert(
+            SummaryRecord(
+                dataset=Dataset.CSRC,
+                case_id="C2",
+                punished_entity="我局在对杭州巨鲸财富管理有限公司",
+                violation_type="内控缺失",
+                extract_success=True,
+            ),
+            status=CaseStatus.DONE,
+        )
+
+        report = DataRepairService(store).repair(dry_run=True)
+        assert report.csrc_entity_dirty_replaced == 1
+        assert report.summary_entity_dirty_replaced == 1
+        case = store.cases.get(Dataset.CSRC, "C2")
+        assert case is not None and case.punished_entities.startswith("我局")  # dry-run 不落盘
+
+        report = DataRepairService(store).repair(dry_run=False)
+        assert report.csrc_entity_dirty_replaced == 1
+        assert report.summary_entity_dirty_replaced == 1
+        case = store.cases.get(Dataset.CSRC, "C2")
+        assert case is not None and case.punished_entities == "倪心刚"
+        summary = store.summaries.get(Dataset.CSRC, "C2")
+        assert summary is not None and summary.punished_entity == "倪心刚"
+        rows = store.cases.search(CaseQuery(datasets=(Dataset.CSRC,), violations=("内控缺失",)))
+        assert rows and rows[0].punished_entities == "倪心刚"
+
+    def test_repair_keeps_unfixable_dirty_entity(self, store: DataStore) -> None:
+        _seed(store)
+        store.cases.upsert(
+            CaseRecord(
+                dataset=Dataset.CSRC,
+                case_id="C3",
+                title="中国证券监督管理委员会某监管局行政处罚决定书",
+                date="2024-01-01",
+                status=CaseStatus.DONE,
+                punished_entities="上述行为违反了《中华人民共和国证券法》",
+            )
+        )
+        report = DataRepairService(store).repair(dry_run=False)
+        assert report.csrc_entity_dirty_unresolved >= 1
+        case = store.cases.get(Dataset.CSRC, "C3")
+        assert case is not None
+        assert case.punished_entities == "上述行为违反了《中华人民共和国证券法》"

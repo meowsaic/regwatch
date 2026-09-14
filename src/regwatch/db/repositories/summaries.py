@@ -337,6 +337,22 @@ class SummaryRepository:
         sql += " ORDER BY s.dataset, s.case_id"
         return [dict(row) for row in self._db.query(sql, tuple(params))]
 
+    def list_with_punished_entity(
+        self, dataset: Dataset | str | None = None
+    ) -> list[dict[str, Any]]:
+        """列出摘要中当事人非空的记录（附带案例侧当事人与标题，供脏值修复对照）。"""
+        sql = (
+            "SELECT s.dataset, s.case_id, s.punished_entity, c.title, c.punished_entities "
+            "FROM summaries s JOIN cases c ON c.dataset = s.dataset AND c.case_id = s.case_id "
+            "WHERE TRIM(COALESCE(s.punished_entity, '')) <> ''"
+        )
+        params: list[Any] = []
+        if dataset is not None:
+            sql += " AND s.dataset = ?"
+            params.append(_dataset_value(dataset))
+        sql += " ORDER BY s.dataset, s.case_id"
+        return [dict(row) for row in self._db.query(sql, tuple(params))]
+
     # ── 读取 ──
 
     def get(self, dataset: Dataset | str, case_id: str) -> SummaryRecord | None:
